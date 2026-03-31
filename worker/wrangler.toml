@@ -1,0 +1,18 @@
+name = "pi-assistant"
+main = "src/index.ts"
+compatibility_date = "2025-03-28"
+
+[[vectorize]]
+binding = "PI_VECTORS"
+index_name = "pi-notes"
+
+[vars]
+LLM_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
+LLM_MODEL = "GLM-5.1"
+EMBEDDING_MODEL = "BAAI/bge-m3"
+
+# Secrets - set via `wrangler secret put` or in .dev.vars for local dev:
+# SILICONFLOW_API_KEY - SiliconFlow API key (for embedding)
+# LLM_API_KEY - LLM provider API key
+# AUTH_TOKEN - Bearer token for WeClaw authentication
+# WECLAW_API_URL - WeClaw local API (e.g. http://127.0.0.1:18011)

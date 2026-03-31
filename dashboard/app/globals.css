@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+:root {
+  --pi-cream: #faf6f0;
+  --pi-sand: #f0e9de;
+  --pi-ink: #1a1612;
+  --pi-ink-soft: #3d3630;
+  --pi-ink-muted: #8a7e72;
+  --pi-gold: #c8963e;
+  --pi-gold-light: #e8c882;
+  --pi-gold-bg: #fdf5e6;
+  --pi-green: #5a8a6a;
+  --pi-blue: #4a7a9a;
+  --pi-red: #b85450;
+  --pi-border: #e0d6c8;
+}
+
+@theme inline {
+  --color-pi-cream: var(--pi-cream);
+  --color-pi-sand: var(--pi-sand);
+  --color-pi-ink: var(--pi-ink);
+  --color-pi-ink-soft: var(--pi-ink-soft);
+  --color-pi-ink-muted: var(--pi-ink-muted);
+  --color-pi-gold: var(--pi-gold);
+  --color-pi-gold-light: var(--pi-gold-light);
+  --color-pi-gold-bg: var(--pi-gold-bg);
+  --color-pi-green: var(--pi-green);
+  --color-pi-blue: var(--pi-blue);
+  --color-pi-red: var(--pi-red);
+  --color-pi-border: var(--pi-border);
+}
+
+body {
+  background-color: var(--pi-cream);
+  color: var(--pi-ink);
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.5s ease-out both;
+}
+
+@keyframes rotateIn {
+  from { transform: rotate(-90deg) scale(0.8); opacity: 0; }
+  to { transform: rotate(0) scale(1); opacity: 1; }
+}
+
+.animate-rotate-in {
+  animation: rotateIn 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes fillBar {
+  from { width: 0; }
+}
+
+.animate-fill {
+  animation: fillBar 1s ease-out both;
+}
+
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(26, 22, 18, 0.08);
+}
+
+.tag-work { background: #e8f0f8; color: #3a6a8a; }
+.tag-life { background: #e8f4e8; color: #3a7a4a; }
+.tag-idea { background: #fdf0e0; color: #9a7030; }
+.tag-meeting { background: #f0e8f4; color: #6a4a8a; }
+.tag-learning { background: #f8e8e8; color: #8a4a4a; }
+.tag-general { background: #f0ece4; color: #6a6050; }

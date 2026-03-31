@@ -1,0 +1,13 @@
+{
+  "default_agent": "pi",
+  "agents": {
+    "pi": {
+      "type": "http",
+      "endpoint": "https://pi-assistant.<your-subdomain>.workers.dev/v1/chat/completions",
+      "api_key": "<your-AUTH_TOKEN>",
+      "model": "pi-agent",
+      "system_prompt": "",
+      "max_history": 10
+    }
+  }
+}
