@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8787";
+import { useAuth } from "../components/auth-provider";
 
 const CATEGORIES = ["all", "work", "life", "idea", "meeting", "learning", "general"] as const;
 
@@ -25,6 +24,7 @@ const DEMO_NOTES: Note[] = [
 ];
 
 export default function NotesPage() {
+  const { authFetch } = useAuth();
   const [notes, setNotes] = useState<Note[]>(DEMO_NOTES);
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,13 +36,13 @@ export default function NotesPage() {
       const params = new URLSearchParams();
       if (searchQuery) params.set("q", searchQuery);
       if (activeCategory !== "all") params.set("category", activeCategory);
-      const res = await fetch(`${API_BASE}/api/notes?${params}`);
+      const res = await authFetch(`/api/notes?${params}`);
       const data = await res.json();
       if (data.notes?.length > 0) setNotes(data.notes);
     } catch {
       // Use demo data
     }
-  }, [searchQuery, activeCategory]);
+  }, [searchQuery, activeCategory, authFetch]);
 
   useEffect(() => {
     fetchNotes();
@@ -60,7 +60,7 @@ export default function NotesPage() {
 
   const saveEdit = async (id: string) => {
     try {
-      await fetch(`${API_BASE}/api/notes/${id}`, {
+      await authFetch(`/api/notes/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: editContent }),
@@ -76,7 +76,7 @@ export default function NotesPage() {
 
   const deleteNote = async (id: string) => {
     try {
-      await fetch(`${API_BASE}/api/notes/${id}`, { method: "DELETE" });
+      await authFetch(`/api/notes/${id}`, { method: "DELETE" });
     } catch {
       // Delete locally anyway
     }
@@ -85,14 +85,18 @@ export default function NotesPage() {
 
   const pushToWeChat = async (note: Note) => {
     try {
-      await fetch(`${API_BASE}/api/notes/${note.id}/push`, {
+      const res = await authFetch("/api/gateway/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: note.userId, content: note.content }),
+        body: JSON.stringify({ to: note.userId, text: note.content }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
       alert("Pushed to WeChat!");
-    } catch {
-      alert("Push failed - check WeClaw connection");
+    } catch (err: any) {
+      alert(`Push failed: ${err.message}`);
     }
   };
 

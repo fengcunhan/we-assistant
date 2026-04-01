@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useAuth } from "./auth-provider";
 
 const navItems = [
   {
@@ -26,10 +28,39 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    href: "/files",
+    label: "Files",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 5a2 2 0 012-2h4l2 2h4a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V5z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/wechat",
+    label: "WeChat",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="7" cy="8" r="4" />
+        <circle cx="13" cy="8" r="4" />
+        <path d="M5 12c0 3 2 5 5 5s5-2 5-5" />
+      </svg>
+    ),
+  },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { logout, authFetch } = useAuth();
+  const [vectorCount, setVectorCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    authFetch("/api/stats")
+      .then((res) => res.json())
+      .then((data) => setVectorCount(data.vectorCount ?? null))
+      .catch(() => {});
+  }, [authFetch]);
 
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-pi-sand/60 border-r border-pi-border flex flex-col z-50">
@@ -71,19 +102,25 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-pi-border">
-        <div className="px-4 py-3 rounded-lg bg-pi-cream/80">
-          <p className="text-xs text-pi-ink-muted">Vectorize</p>
-          <div className="mt-1.5 h-1.5 bg-pi-border rounded-full overflow-hidden">
-            <div
-              className="h-full bg-pi-gold rounded-full animate-fill"
-              style={{ width: "12%", animationDelay: "0.5s" }}
-            />
-          </div>
-          <p className="mt-1 text-xs text-pi-ink-muted">
-            24,000 / 200,000 vectors
-          </p>
+      <div className="p-4 border-t border-pi-border space-y-3">
+        <div className="px-4 py-2 rounded-lg bg-pi-cream/80 flex items-center justify-between">
+          <span className="text-xs text-pi-ink-muted">Vectors</span>
+          <span className="text-sm font-medium text-pi-ink tabular-nums">
+            {vectorCount !== null ? vectorCount.toLocaleString() : "–"}
+          </span>
         </div>
+
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm text-pi-ink-muted hover:bg-pi-cream hover:text-pi-red transition-colors"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 17H4a1 1 0 01-1-1V4a1 1 0 011-1h3" />
+            <path d="M14 14l3-4-3-4" />
+            <path d="M17 10H8" />
+          </svg>
+          Sign out
+        </button>
       </div>
     </aside>
   );

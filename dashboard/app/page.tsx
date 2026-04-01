@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { PieChart } from "./components/pie-chart";
 import { ActivityChart } from "./components/activity-chart";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8787";
+import { useAuth } from "./components/auth-provider";
 
 interface Stats {
   totalNotes: number;
@@ -36,14 +35,15 @@ const DEMO_OPERATIONS = [
 ];
 
 export default function DashboardPage() {
+  const { authFetch } = useAuth();
   const [stats, setStats] = useState<Stats>(DEMO_STATS);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/stats`)
+    authFetch("/api/stats")
       .then((res) => res.json())
       .then((data: Stats) => setStats(data))
       .catch(() => {});
-  }, []);
+  }, [authFetch]);
 
   const dist = stats.intentDistribution;
   const pieData = [
