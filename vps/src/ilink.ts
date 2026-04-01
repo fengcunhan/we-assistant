@@ -12,6 +12,8 @@ export interface Credentials {
 
 interface MediaInfo {
   encrypt_query_param?: string
+  aes_key?: string
+  full_url?: string
 }
 
 export interface ILinkMessage {
@@ -23,7 +25,7 @@ export interface ILinkMessage {
     type: number
     text_item?: { text: string }
     image_item?: { aeskey?: string; media?: MediaInfo }
-    voice_item?: { voice_text?: string; aeskey?: string; media?: MediaInfo }
+    voice_item?: { voice_text?: string; text?: string; aeskey?: string; media?: MediaInfo }
     file_item?: { file_name?: string; file_size?: number; aeskey?: string; media?: MediaInfo }
     video_item?: { duration_ms?: number; aeskey?: string; media?: MediaInfo }
   }>
@@ -226,6 +228,14 @@ export async function downloadMedia(
   return path
 }
 
+/** Resolve aes key to hex string. item.aeskey is hex directly; media.aes_key is base64-encoded hex. */
+function resolveAesKeyHex(itemKey?: string, mediaKey?: string): string | null {
+  if (itemKey) return itemKey
+  if (!mediaKey) return null
+  // media.aes_key is base64 → decode to get hex string
+  return Buffer.from(mediaKey, 'base64').toString('utf-8')
+}
+
 /**
  * Extract text + download media from an inbound message.
  */
@@ -236,7 +246,7 @@ export async function extractContent(msg: ILinkMessage): Promise<{ text: string;
   // Debug: log raw item structure for non-text messages
   for (const item of msg.item_list) {
     if (item.type !== 1) {
-      console.log(`[DEBUG] item type=${item.type}:`, JSON.stringify(item).slice(0, 500))
+      console.log(`[DEBUG] item type=${item.type}:`, JSON.stringify(item).slice(0, 2000))
     }
   }
 
@@ -247,9 +257,10 @@ export async function extractContent(msg: ILinkMessage): Promise<{ text: string;
         break
       case 2: {
         const img = item.image_item
-        if (img?.media?.encrypt_query_param && img.aeskey) {
+        const imgAesKey = resolveAesKeyHex(img?.aeskey, img?.media?.aes_key)
+        if (img?.media?.encrypt_query_param && imgAesKey) {
           try {
-            const p = await downloadMedia(img.media.encrypt_query_param, img.aeskey, 'image')
+            const p = await downloadMedia(img.media.encrypt_query_param, imgAesKey, 'image')
             mediaPaths.push(p)
             parts.push(`[图片已保存: ${p}]`)
           } catch (e) { parts.push(`[图片下载失败: ${(e as Error).message}]`) }
@@ -258,12 +269,14 @@ export async function extractContent(msg: ILinkMessage): Promise<{ text: string;
       }
       case 3: {
         const voice = item.voice_item
-        if (voice?.voice_text) {
-          parts.push(voice.voice_text)
+        const voiceText = voice?.voice_text || voice?.text
+        if (voiceText) {
+          parts.push(voiceText)
         } else parts.push('[语音]')
-        if (voice?.media?.encrypt_query_param && voice.aeskey) {
+        const voiceAesKey = resolveAesKeyHex(voice?.aeskey, voice?.media?.aes_key)
+        if (voice?.media?.encrypt_query_param && voiceAesKey) {
           try {
-            const p = await downloadMedia(voice.media.encrypt_query_param, voice.aeskey, 'voice')
+            const p = await downloadMedia(voice.media.encrypt_query_param, voiceAesKey, 'voice')
             mediaPaths.push(p)
           } catch { /* non-critical */ }
         }
@@ -272,9 +285,10 @@ export async function extractContent(msg: ILinkMessage): Promise<{ text: string;
       case 4: {
         const file = item.file_item
         const fname = file?.file_name ?? '未知文件'
-        if (file?.media?.encrypt_query_param && file.aeskey) {
+        const fileAesKey = resolveAesKeyHex(file?.aeskey, file?.media?.aes_key)
+        if (file?.media?.encrypt_query_param && fileAesKey) {
           try {
-            const p = await downloadMedia(file.media.encrypt_query_param, file.aeskey, 'file', fname)
+            const p = await downloadMedia(file.media.encrypt_query_param, fileAesKey, 'file', fname)
             mediaPaths.push(p)
             parts.push(`[文件已保存: ${fname}]`)
           } catch { parts.push(`[文件下载失败: ${fname}]`) }
@@ -283,9 +297,10 @@ export async function extractContent(msg: ILinkMessage): Promise<{ text: string;
       }
       case 5: {
         const vid = item.video_item
-        if (vid?.media?.encrypt_query_param && vid.aeskey) {
+        const vidAesKey = resolveAesKeyHex(vid?.aeskey, vid?.media?.aes_key)
+        if (vid?.media?.encrypt_query_param && vidAesKey) {
           try {
-            const p = await downloadMedia(vid.media.encrypt_query_param, vid.aeskey, 'video')
+            const p = await downloadMedia(vid.media.encrypt_query_param, vidAesKey, 'video')
             mediaPaths.push(p)
             parts.push(`[视频已保存: ${p}]`)
           } catch { parts.push('[视频下载失败]') }

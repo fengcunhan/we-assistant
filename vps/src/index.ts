@@ -5,6 +5,8 @@ import { getEmbedding } from './embedding'
 import { getMultimodalEmbedding } from './embedding'
 import * as ilink from './ilink'
 import type { Credentials } from './ilink'
+import { startScheduler } from './scheduler'
+import { startProactive } from './proactive'
 
 // --- State ---
 
@@ -64,23 +66,21 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     logMedia(contactId, 'inbound', p, 2, p)
   }
 
-  // If media was uploaded, embed images + reply
-  if (mediaPaths.length > 0) {
-    // Embed each image and store in vector DB
-    for (const url of mediaPaths) {
-      if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i)) {
-        try {
-          const embedding = await getMultimodalEmbedding([{ image: url }])
-          const id = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-          insertVector(id, embedding, `图片来自 ${contactId}`, 'image', contactId, 'store', url)
-          console.log(`🧠 图片已embedding并存库: ${id}`)
-        } catch (err) {
-          console.error('❌ 图片embedding失败:', (err as Error).message)
-        }
-      }
+  // Embed images in background (fire-and-forget)
+  for (const url of mediaPaths) {
+    if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i)) {
+      getMultimodalEmbedding([{ image: url }]).then((embedding) => {
+        const id = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+        insertVector(id, embedding, `图片来自 ${contactId}`, 'image', contactId, 'store', url)
+        console.log(`🧠 图片已embedding并存库: ${id}`)
+      }).catch((err) => console.error('❌ 图片embedding失败:', (err as Error).message))
     }
+  }
 
-    const mediaReply = `已收到并存档 ✅ 共 ${mediaPaths.length} 个文件。之后你可以用文字描述来找回这些图片。`
+  // If only media with no meaningful text, just confirm receipt
+  const hasRealText = text && !text.match(/^\[.+\]$/)
+  if (mediaPaths.length > 0 && !hasRealText) {
+    const mediaReply = `已收到并存档 ✅ 共 ${mediaPaths.length} 个文件。之后你可以用文字描述来找回这些内容。`
     addMessage(contactId, 'user', text)
     addMessage(contactId, 'assistant', mediaReply)
     await ilink.sendMessage(creds!, contactId, msg.context_token, mediaReply)
@@ -88,7 +88,7 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     return
   }
 
-  // Text-only: run agent
+  // Has text (including voice transcription): run agent
   // Typing
   try { if (typingTicket) await ilink.sendTyping(creds!, typingTicket, contactId) } catch {}
 
@@ -359,6 +359,49 @@ const server = createServer(async (req, res) => {
       return json(res, { success: true })
     }
 
+    // --- Cron Jobs (Reminders) ---
+    if (url.pathname === '/api/cron' && method === 'GET') {
+      const { getCronJobs } = await import('./db.js')
+      return json(res, { jobs: getCronJobs() })
+    }
+
+    if (url.pathname.match(/^\/api\/cron\//) && method === 'PATCH') {
+      const id = url.pathname.split('/').pop()!
+      const { updateCronJob } = await import('./db.js')
+      const fields = await body(req)
+      // If schedule_value changed, recompute next_run_at
+      if (fields.schedule_value !== undefined) {
+        const { getCronJobs } = await import('./db.js')
+        const existing = getCronJobs().find(j => j.id === id)
+        if (existing) {
+          const { computeNextRunAt } = await import('./scheduler.js')
+          const updated = { ...existing, schedule_value: fields.schedule_value }
+          fields.next_run_at = computeNextRunAt(updated, Date.now())
+        }
+      }
+      // If re-enabling, recompute next_run_at
+      if (fields.enabled === 1) {
+        const { getCronJobs } = await import('./db.js')
+        const existing = getCronJobs().find(j => j.id === id)
+        if (existing) {
+          const { computeNextRunAt } = await import('./scheduler.js')
+          const updated = { ...existing, ...fields }
+          const nextRun = computeNextRunAt(updated, Date.now())
+          if (nextRun) fields.next_run_at = nextRun
+        }
+      }
+      const result = updateCronJob(id, fields)
+      if (!result) return json(res, { error: 'Not found' }, 404)
+      return json(res, { job: result })
+    }
+
+    if (url.pathname.match(/^\/api\/cron\//) && method === 'DELETE') {
+      const id = url.pathname.split('/').pop()!
+      const { deleteCronJob } = await import('./db.js')
+      deleteCronJob(id)
+      return json(res, { success: true })
+    }
+
     // --- Files ---
     if (url.pathname === '/api/files' && method === 'GET') {
       const { getFiles } = await import('./db.js')
@@ -392,6 +435,19 @@ console.log(`
 ╚══════════════════════════════════╝
 `)
 console.log(`📡 API server: http://0.0.0.0:${config.apiPort}`)
+
+// Start scheduler (sends reminders via iLink)
+startScheduler(async (userId: string, text: string) => {
+  if (!creds || !running) throw new Error('Gateway not running')
+  await ilink.sendMessage(creds, userId, '', text)
+  addMessage(userId, 'assistant', `⏰ ${text}`)
+})
+
+startProactive(async (userId: string, text: string) => {
+  if (!creds || !running) throw new Error('Gateway not running')
+  await ilink.sendMessage(creds, userId, '', text)
+  addMessage(userId, 'assistant', text)
+})
 
 if (loadCredentials()) {
   console.log(`🔑 已加载保存的凭据: ${creds!.ilinkBotId}`)

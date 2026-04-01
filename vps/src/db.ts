@@ -25,6 +25,21 @@ db.exec(`
     intent_type TEXT NOT NULL DEFAULT 'store', media_url TEXT,
     timestamp INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS cron_jobs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    schedule_kind TEXT NOT NULL,       -- 'at' | 'every' | 'cron'
+    schedule_value TEXT NOT NULL,      -- ISO timestamp | ms interval | cron expr
+    schedule_tz TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+    payload TEXT NOT NULL,             -- message text sent to user or agent prompt
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at INTEGER,               -- ms epoch
+    last_run_at INTEGER,
+    last_status TEXT,                   -- 'ok' | 'error'
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `)
 
 // --- Credentials ---
@@ -140,6 +155,65 @@ export function getFiles() {
 
 export function deleteVector(id: string) {
   db.prepare('DELETE FROM vectors WHERE id = ?').run(id)
+}
+
+// --- Cron Jobs ---
+
+export interface CronJob {
+  id: string
+  name: string
+  user_id: string
+  schedule_kind: 'at' | 'every' | 'cron'
+  schedule_value: string
+  schedule_tz: string
+  payload: string
+  enabled: number
+  next_run_at: number | null
+  last_run_at: number | null
+  last_status: string | null
+  created_at: number
+  updated_at: number
+}
+
+export function createCronJob(job: Omit<CronJob, 'created_at' | 'updated_at'>): void {
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO cron_jobs (id, name, user_id, schedule_kind, schedule_value, schedule_tz, payload, enabled, next_run_at, last_run_at, last_status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(job.id, job.name, job.user_id, job.schedule_kind, job.schedule_value, job.schedule_tz, job.payload, job.enabled, job.next_run_at, job.last_run_at, job.last_status, now, now)
+}
+
+export function getCronJobs(userId?: string): CronJob[] {
+  if (userId) {
+    return db.prepare('SELECT * FROM cron_jobs WHERE user_id = ? ORDER BY created_at DESC').all(userId) as CronJob[]
+  }
+  return db.prepare('SELECT * FROM cron_jobs ORDER BY created_at DESC').all() as CronJob[]
+}
+
+export function getEnabledDueJobs(nowMs: number): CronJob[] {
+  return db.prepare(
+    'SELECT * FROM cron_jobs WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?'
+  ).all(nowMs) as CronJob[]
+}
+
+export function updateCronJobAfterRun(id: string, status: string, nextRunAt: number | null): void {
+  db.prepare(
+    'UPDATE cron_jobs SET last_run_at = ?, last_status = ?, next_run_at = ?, updated_at = ? WHERE id = ?'
+  ).run(Date.now(), status, nextRunAt, Date.now(), id)
+}
+
+export function updateCronJob(id: string, fields: Partial<Pick<CronJob, 'name' | 'payload' | 'enabled' | 'schedule_value' | 'next_run_at'>>): CronJob | null {
+  const existing = db.prepare('SELECT * FROM cron_jobs WHERE id = ?').get(id) as CronJob | undefined
+  if (!existing) return null
+  const updated = { ...existing, ...fields, updated_at: Date.now() }
+  db.prepare(
+    'UPDATE cron_jobs SET name = ?, payload = ?, enabled = ?, schedule_value = ?, next_run_at = ?, updated_at = ? WHERE id = ?'
+  ).run(updated.name, updated.payload, updated.enabled, updated.schedule_value, updated.next_run_at, updated.updated_at, id)
+  return updated
+}
+
+export function deleteCronJob(id: string): void {
+  db.prepare('DELETE FROM cron_jobs WHERE id = ?').run(id)
 }
 
 export default db

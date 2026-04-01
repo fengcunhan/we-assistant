@@ -10,10 +10,12 @@ WeChat User
 │                                         │
 │  Node.js + tsx 单进程                    │
 │  ├─ iLink long-poll (35s) 收微信消息      │
-│  ├─ Pi Agent (LLM function calling)     │
+│  ├─ Pi Agent (multi-turn tool calling)  │
 │  │   ├─ store_note → embedding → SQLite │
 │  │   ├─ query_knowledge → 向量检索 → RAG │
-│  │   └─ search_images → 向量搜图 → 发图  │
+│  │   ├─ search_images → 向量搜图 → 发图  │
+│  │   └─ reminder → 定时提醒 (cron_jobs)  │
+│  ├─ Scheduler (30s tick → 到期发微信)    │
 │  ├─ 媒体: AES-ECB 解密 → COS 上传       │
 │  ├─ HTTP API (:18011)                   │
 │  └─ Dashboard 静态文件 (Next.js)         │
@@ -53,14 +55,16 @@ src/
   db.ts           # SQLite: 凭据、对话历史、向量存储、统计
   llm.ts          # LLM 客户端 (OpenAI 兼容，支持多轮 tool 消息)
   embedding.ts    # 百炼 DashScope 多模态 embedding
-  agent.ts        # Agent 引擎: 多轮 tool-calling loop + skill 加载
+  agent.ts        # Agent 引擎: 多轮 tool-calling loop + skill 加载 + 时间注入
   ilink.ts        # iLink 协议: 收发消息、AES-ECB 加解密、CDN 媒体上下载
   cos.ts          # 腾讯云 COS 上传 + 签名 URL
+  scheduler.ts    # 定时任务调度器 (30s interval, cron_jobs 表)
   skills/
     types.ts      # Skill / ToolDef / ToolResult 接口定义
     store-note.ts       # 存储笔记技能
     query-knowledge.ts  # 知识检索技能
     search-images.ts    # 图片搜索技能
+    reminder.ts         # 定时提醒技能 (create/list/delete)
 public/           # Next.js 静态导出 (dashboard)
 data/
   pi.db           # SQLite 数据库
@@ -74,12 +78,18 @@ package.json
 ### 核心设计
 
 ```
-用户消息 → Agent Loop (最多 5 轮)
-              ├─ 1. buildSystemPrompt() — 精简 base + skill descriptions 动态注入
-              ├─ 2. chatWithTools(messages, allTools) — LLM 决策
-              ├─ 3. 无 tool_calls → 返回最终回复
-              └─ 4. 有 tool_calls → 分发到 Skill.execute() → tool result 追加到 messages → 回到 2
+用户消息 (文本/语音转写) → Agent Loop (最多 5 轮)
+  ├─ 1. buildSystemPrompt() — base + 当前时间 + skill descriptions 动态注入
+  ├─ 2. chatWithTools(messages, allTools) — LLM 决策
+  ├─ 3. 无 tool_calls → 返回最终回复
+  └─ 4. 有 tool_calls → 分发到 Skill.execute() → tool result 追加到 messages → 回到 2
 ```
+
+### System Prompt 动态内容
+
+- **当前时间**: 每次调用注入 `Asia/Shanghai` 时区的完整日期时间，确保 LLM 能正确理解"明天"、"下周一"等相对时间
+- **Skill 描述**: 从 skills 数组自动组装
+- **Memory Recall**: 要求 LLM 在回答历史相关问题前必须先调 query_knowledge
 
 ### Skill 接口
 
@@ -116,6 +126,58 @@ interface ToolResult {
 | 模块化 | 全部硬编码在 agent.ts | 每个 skill 独立文件，自包含 |
 | System Prompt | 手动列举所有工具 | 从 skills 数组自动组装 |
 | 新增能力 | 改 agent.ts 多处 (tools/if-else/handler) | 新建 skill 文件 + 1 行 import |
+
+## 定时任务 (Scheduler)
+
+借鉴 OpenClaw 的 cron 系统实现的精简版。
+
+### 调度类型
+
+| Kind | 说明 | schedule_value 示例 |
+|------|------|-------------------|
+| `at` | 一次性，执行后自动禁用 | `2026-04-02T15:00:00` (ISO) |
+| `every` | 固定间隔 (最小 1 分钟) | `3600000` (毫秒) |
+| `cron` | 每日定时 | `09:00` (HH:MM, Asia/Shanghai) |
+
+### 工作原理
+
+- `scheduler.ts`: 每 30s 检查 `cron_jobs` 表中 `next_run_at <= now` 的任务
+- 到期任务通过 iLink `sendMessage` 发送 `payload` 到对应用户的微信
+- 执行后自动计算下次运行时间；`at` 类型执行后自动 `enabled = 0`
+- 启动时立即 tick 一次以捕获服务重启期间错过的任务
+
+### 用户交互 (通过 reminder skill)
+
+- "提醒我明天下午3点开会" → `create_reminder(at, 2026-04-02T15:00:00)`
+- "每天早上9点提醒我喝水" → `create_reminder(cron, 09:00)`
+- "看看我的提醒" → `list_reminders`
+- "删除提醒 rem_xxx" → `delete_reminder`
+
+## 消息处理流程
+
+### 入站消息分类
+
+```
+iLink 消息 → extractContent() → { text, mediaPaths }
+  ├─ 语音: voice_item.text (转写) + 下载 SILK → COS
+  ├─ 图片: 下载解密 → COS + multimodal embedding (异步)
+  ├─ 文件/视频: 下载解密 → COS
+  └─ 文本: 直接提取
+```
+
+### 处理逻辑
+
+```
+有文本 (含语音转写)? ──yes──→ 交给 Agent 处理 → 回复
+                      │
+                      no (纯媒体无文字)
+                      │
+                      └──→ "已收到并存档" 确认
+```
+
+### 自动索引
+
+所有 ≥4 字符的用户文本消息异步 embedding 存入向量库 (`intent_type = 'chat'`)，确保对话内容可被语义检索，无需用户手动 `store_note`。
 
 ## Environment Variables (.env)
 
@@ -157,6 +219,8 @@ API_PORT=18011
 | `/api/gateway/send` | POST | 主动推送消息 `{to, text}` |
 | `/api/messages` | GET | 消息日志 `?limit=50` |
 | `/api/files` | GET | 媒体文件列表 (含 COS 签名 URL) |
+| `/api/cron` | GET | 定时任务列表 |
+| `/api/cron/:id` | DELETE | 删除定时任务 |
 
 ## Dashboard
 
@@ -182,7 +246,11 @@ systemctl restart pi-assistant
 - `X-WECHAT-UIN`: `btoa(String(randomUint32()))` 每次随机
 - `getupdates`: POST, 35s long-poll, 返回 `msgs` + `get_updates_buf` 游标
 - `sendmessage`: POST, 必须包含 `from_user_id` (bot ID) + `client_id` (UUID) + `context_token`
-- 媒体字段: `item.image_item.aeskey` (hex string) + `item.image_item.media.encrypt_query_param`
+- 媒体字段: AES key 有两个位置 (需都检查):
+  - `item.image_item.aeskey` — hex string (旧格式)
+  - `item.image_item.media.aes_key` — base64 编码的 hex string (新格式)
+  - 解析: `resolveAesKeyHex()` 统一处理两种格式
+- 语音转写: `voice_item.text` (不是 `voice_text`)
 - CDN 下载: `GET https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=<urlencoded>`
 - AES key: hex string → hexToBytes → 16 字节 AES-128 key
 
@@ -241,5 +309,7 @@ WantedBy=multi-user.target
 
 1. **iLink 屏蔽海外 IP**: Cloudflare Workers 无法直接调用 iLink API (403 error 1003)，必须从国内 VPS 发起请求
 2. **sendMessage 必须含 from_user_id + client_id**: 缺少这两个字段消息会静默发送失败 (返回空 `{}` 但不送达)
-3. **AES key 是 hex 字符串**: iLink 消息中的 `aeskey` 字段是 hex 编码的 16 字节 key，不是 base64
+3. **AES key 两种格式**: `item.aeskey` 是直接 hex string；`item.media.aes_key` 是 base64(hex string)，需 base64 decode 后得到 hex
 4. **CDN URL 格式**: 下载用 `/download?encrypted_query_param=<urlencoded>`，上传用 `/upload?encrypted_query_param=<urlencoded>&filekey=<hex>`
+5. **语音转写字段**: iLink 返回的是 `voice_item.text`，不是 `voice_item.voice_text`
+6. **语音消息应走 Agent**: 有转写文本的语音消息要交给 Agent 处理，不能当纯媒体只存档

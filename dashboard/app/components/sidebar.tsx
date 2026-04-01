@@ -38,6 +38,16 @@ const navItems = [
     ),
   },
   {
+    href: "/schedules",
+    label: "Schedules",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="10" cy="10" r="8" />
+        <path d="M10 6v4l3 2" />
+      </svg>
+    ),
+  },
+  {
     href: "/wechat",
     label: "WeChat",
     icon: (
