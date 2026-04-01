@@ -1,6 +1,7 @@
 import { config } from './config'
 import { getCredential, setCredential, getHistory, addMessage, logMedia, getRecentLogs, insertVector } from './db'
 import { runAgent } from './agent'
+import { getEmbedding } from './embedding'
 import { getMultimodalEmbedding } from './embedding'
 import * as ilink from './ilink'
 import type { Credentials } from './ilink'
@@ -106,6 +107,14 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
   await ilink.sendMessage(creds!, contactId, msg.context_token, result.reply)
   console.log(`📤 → ${contactId}: ${result.reply.slice(0, 80)}`)
 
+  // Auto-index: embed user message into vector DB (fire-and-forget)
+  // This ensures ALL conversations are semantically searchable, not just explicit store_note calls
+  if (text.length >= 4) {
+    autoIndex(text, contactId).catch((err) =>
+      console.error('⚠️ Auto-index failed:', (err as Error).message)
+    )
+  }
+
   // Send images if agent returned any
   if (result.imageUrls?.length) {
     for (const url of result.imageUrls) {
@@ -118,6 +127,15 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
       }
     }
   }
+}
+
+// --- Auto-index user messages ---
+
+async function autoIndex(text: string, userId: string): Promise<void> {
+  const embedding = await getEmbedding(text)
+  const id = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  insertVector(id, embedding, text, 'general', userId, 'chat')
+  console.log(`🧠 Auto-indexed: ${text.slice(0, 40)}...`)
 }
 
 // --- Polling loop ---

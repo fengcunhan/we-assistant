@@ -51,11 +51,16 @@ src/
   index.ts        # 入口: iLink 轮询 + HTTP server + Dashboard 静态服务
   config.ts       # 环境变量配置
   db.ts           # SQLite: 凭据、对话历史、向量存储、统计
-  llm.ts          # 智谱 GLM-5.1 客户端 (OpenAI 兼容)
+  llm.ts          # LLM 客户端 (OpenAI 兼容，支持多轮 tool 消息)
   embedding.ts    # 百炼 DashScope 多模态 embedding
-  agent.ts        # Pi Agent: store_note / query_knowledge / search_images
+  agent.ts        # Agent 引擎: 多轮 tool-calling loop + skill 加载
   ilink.ts        # iLink 协议: 收发消息、AES-ECB 加解密、CDN 媒体上下载
-  cos.ts          # 腾讯云 COS 上传
+  cos.ts          # 腾讯云 COS 上传 + 签名 URL
+  skills/
+    types.ts      # Skill / ToolDef / ToolResult 接口定义
+    store-note.ts       # 存储笔记技能
+    query-knowledge.ts  # 知识检索技能
+    search-images.ts    # 图片搜索技能
 public/           # Next.js 静态导出 (dashboard)
 data/
   pi.db           # SQLite 数据库
@@ -63,6 +68,54 @@ data/
 .env              # 环境变量 (secrets)
 package.json
 ```
+
+## Agent + Skill 架构 (借鉴 OpenClaw)
+
+### 核心设计
+
+```
+用户消息 → Agent Loop (最多 5 轮)
+              ├─ 1. buildSystemPrompt() — 精简 base + skill descriptions 动态注入
+              ├─ 2. chatWithTools(messages, allTools) — LLM 决策
+              ├─ 3. 无 tool_calls → 返回最终回复
+              └─ 4. 有 tool_calls → 分发到 Skill.execute() → tool result 追加到 messages → 回到 2
+```
+
+### Skill 接口
+
+每个 Skill 是自包含模块 (`src/skills/*.ts`)，包含:
+- `name` + `description` — 元数据，注入 system prompt 帮助 LLM 决策
+- `tools: ToolDef[]` — OpenAI function-calling 格式的工具定义
+- `execute(toolName, args, context) → ToolResult` — 工具执行器
+
+```typescript
+interface Skill {
+  name: string
+  description: string
+  tools: ToolDef[]
+  execute: (toolName: string, args: Record<string, unknown>, context: SkillContext) => Promise<ToolResult>
+}
+interface ToolResult {
+  content: string                        // 返回给 LLM 的文本
+  sideEffects?: Record<string, unknown>  // 副作用 (如 imageUrls)
+}
+```
+
+### 新增 Skill
+
+1. 创建 `src/skills/my-skill.ts`，export default 一个 `Skill` 对象
+2. 在 `src/agent.ts` 顶部 import 并加入 `skills` 数组
+3. Agent 自动注册工具、注入 prompt、处理分发
+
+### 关键区别 (vs 旧实现)
+
+| | 旧 | 新 |
+|---|---|---|
+| Tool 调用 | 单轮，取第一个 tool call | 多轮循环 (最多 5 轮)，支持连续调用 |
+| Tool 结果 | 硬编码字符串直接返回用户 | 送回 LLM，由 LLM 自然语言总结 |
+| 模块化 | 全部硬编码在 agent.ts | 每个 skill 独立文件，自包含 |
+| System Prompt | 手动列举所有工具 | 从 skills 数组自动组装 |
+| 新增能力 | 改 agent.ts 多处 (tools/if-else/handler) | 新建 skill 文件 + 1 行 import |
 
 ## Environment Variables (.env)
 
@@ -103,13 +156,14 @@ API_PORT=18011
 | `/api/gateway/status` | GET | 网关运行状态 |
 | `/api/gateway/send` | POST | 主动推送消息 `{to, text}` |
 | `/api/messages` | GET | 消息日志 `?limit=50` |
+| `/api/files` | GET | 媒体文件列表 (含 COS 签名 URL) |
 
 ## Dashboard
 
 - Framework: Next.js 16, React 19, Tailwind CSS v4
 - 静态导出到 `public/` 目录，VPS 的 HTTP server 直接 serve
 - 登录: admin / <ADMIN_PASSWORD>
-- Pages: `/` (统计), `/wechat` (扫码绑定), `/notes` (知识库), `/login`
+- Pages: `/` (统计), `/notes` (知识库), `/files` (媒体文件), `/wechat` (扫码绑定), `/login`
 - `NEXT_PUBLIC_API_BASE=""` (同源请求)
 
 ### 重新构建 Dashboard

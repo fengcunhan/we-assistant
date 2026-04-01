@@ -1,9 +1,4 @@
-import { config } from './config'
-
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+import { config } from './config.js'
 
 interface ToolCall {
   id: string
@@ -16,17 +11,29 @@ interface ToolDef {
   function: { name: string; description: string; parameters: Record<string, unknown> }
 }
 
+/**
+ * Send a chat completion request with optional tool definitions.
+ * Supports system, user, assistant, and tool role messages.
+ */
 export async function chatWithTools(
-  messages: ChatMessage[],
+  messages: Array<Record<string, unknown>>,
   tools: ToolDef[]
 ): Promise<{ content: string | null; toolCalls: ToolCall[] }> {
+  const body: Record<string, unknown> = {
+    model: config.llm.model,
+    messages,
+  }
+  if (tools.length > 0) {
+    body.tools = tools
+  }
+
   const res = await fetch(`${config.llm.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.llm.apiKey}`,
     },
-    body: JSON.stringify({ model: config.llm.model, messages, tools }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
@@ -45,7 +52,8 @@ export async function chatWithTools(
   }
 }
 
-export async function chat(messages: ChatMessage[]): Promise<string> {
+/** Simple chat without tools */
+export async function chat(messages: Array<Record<string, unknown>>): Promise<string> {
   const { content } = await chatWithTools(messages, [])
   return content ?? ''
 }
