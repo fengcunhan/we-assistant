@@ -2,8 +2,29 @@ node_modules/
 .next/
 out/
 .dev.vars
-.env
-.env.local
-.wrangler/
 *.log
 vps/dist/
+
+# Environment files
+**/.env
+**/.env.*
+!**/.env.*.example
+
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Private keys
+*.key
+*.pem
+*.p12

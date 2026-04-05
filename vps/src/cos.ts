@@ -1,8 +1,9 @@
 import { createHmac, createHash } from 'crypto'
 import { config } from './config.js'
 
-const BUCKET = '<COS_BUCKET>'
-const REGION = 'ap-shanghai'
+const BUCKET = process.env.COS_BUCKET ?? ''
+const REGION = process.env.COS_REGION ?? 'ap-shanghai'
+if (!BUCKET) throw new Error('COS_BUCKET must be set in environment')
 const COS_HOST = `${BUCKET}.cos.${REGION}.myqcloud.com`
 const COS_BASE = `https://${COS_HOST}`
 

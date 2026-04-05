@@ -1,25 +1,6 @@
 import { chatWithTools } from './llm.js'
-import type { Skill, SkillContext, ToolDef, ToolResult } from './skills/types.js'
-
-// --- Skill registry ---
-
-import storeNote from './skills/store-note.js'
-import queryKnowledge from './skills/query-knowledge.js'
-import searchImages from './skills/search-images.js'
-import reminder from './skills/reminder.js'
-
-const skills: Skill[] = [storeNote, queryKnowledge, searchImages, reminder]
-
-/** All tools from all registered skills */
-const allTools: ToolDef[] = skills.flatMap((s) => s.tools)
-
-/** Map tool name → skill for fast dispatch */
-const toolToSkill = new Map<string, Skill>()
-for (const skill of skills) {
-  for (const tool of skill.tools) {
-    toolToSkill.set(tool.function.name, skill)
-  }
-}
+import { getSkills } from './skill-loader.js'
+import type { Skill, SkillContext, ToolResult } from './skills/types.js'
 
 // --- System prompt (lean base + skill descriptions) ---
 
@@ -27,7 +8,7 @@ const BASE_PROMPT = `你是 Pi，一个智能个人知识管理助理。你守�
 
 回复风格: 简洁、友好、有温度。用自然的中文回复，不要机械地复述工具返回的内容。`
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(skills: Skill[]): string {
   const now = new Date()
   const timeStr = now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'full', timeStyle: 'short' })
   const isoStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace(' ', 'T')
@@ -74,7 +55,8 @@ export async function runAgent(
   userId: string,
   history: Array<{ role: string; content: string }>
 ): Promise<AgentResult> {
-  const systemPrompt = buildSystemPrompt()
+  const registry = getSkills()
+  const systemPrompt = buildSystemPrompt(registry.skills)
   const context: SkillContext = { userId, userMessage }
 
   // Build message array: system + history + current user message
@@ -89,7 +71,7 @@ export async function runAgent(
 
   // Multi-turn loop: keep going until LLM stops calling tools
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await chatWithTools(messages, allTools)
+    const response = await chatWithTools(messages, registry.allTools)
 
     // No tool calls → final answer
     if (response.toolCalls.length === 0) {
@@ -105,7 +87,7 @@ export async function runAgent(
 
     // Execute each tool call and append results
     for (const call of response.toolCalls) {
-      const skill = toolToSkill.get(call.function.name)
+      const skill = registry.toolToSkill.get(call.function.name)
       let result: ToolResult
 
       if (!skill) {

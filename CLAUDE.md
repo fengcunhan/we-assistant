@@ -6,7 +6,7 @@
 WeChat User
     ↕ iLink Bot API (ilinkai.weixin.qq.com)
 ┌─────────────────────────────────────────┐
-│  国内 VPS (<VPS_IP>)               │
+│  国内 VPS (<YOUR_VPS_IP>)               │
 │                                         │
 │  Node.js + tsx 单进程                    │
 │  ├─ iLink long-poll (35s) 收微信消息      │
@@ -22,7 +22,7 @@ WeChat User
 │                                         │
 │  数据存储:                               │
 │  ├─ SQLite (./data/pi.db)              │
-│  ├─ 腾讯云 COS (<COS_BUCKET>)      │
+│  ├─ 腾讯云 COS (<COS_BUCKET>)           │
 │  └─ 本地磁盘 (./data/media/ fallback)   │
 └─────────────────────────────────────────┘
     ↕ API calls
@@ -37,11 +37,11 @@ WeChat User
 
 | Item | Value |
 |------|-------|
-| Server | `<VPS_IP>` (腾讯云, 上海) |
-| SSH | `ssh root@<VPS_IP>` |
+| Server | `<YOUR_VPS_IP>` (腾讯云, 上海) |
+| SSH | `ssh root@<YOUR_VPS_IP>` |
 | Code | `/opt/pi-assistant/` |
-| Dashboard | `http://<VPS_IP>:18011` |
-| API | `http://<VPS_IP>:18011/api/*` |
+| Dashboard | `http://<YOUR_VPS_IP>:18011` |
+| API | `http://<YOUR_VPS_IP>:18011/api/*` |
 | Service | `systemctl {start|stop|restart|status} pi-assistant` |
 | Logs | `journalctl -u pi-assistant -f` |
 | Runtime | Node.js 22 + tsx |
@@ -189,8 +189,10 @@ DASHSCOPE_API_KEY=<百炼 API Key>
 EMBEDDING_MODEL=tongyi-embedding-vision-plus-2026-03-06
 COS_SECRET_ID=<腾讯云 COS SecretId>
 COS_SECRET_KEY=<腾讯云 COS SecretKey>
-JWT_SECRET=<JWT_SECRET>
-ADMIN_PASSWORD=<ADMIN_PASSWORD>
+JWT_SECRET=<your-jwt-secret>
+ADMIN_PASSWORD=<your-admin-password>
+COS_BUCKET=<your-cos-bucket>
+COS_REGION=ap-shanghai
 DATA_DIR=./data
 MEDIA_DIR=./data/media
 API_PORT=18011
@@ -226,7 +228,7 @@ API_PORT=18011
 
 - Framework: Next.js 16, React 19, Tailwind CSS v4
 - 静态导出到 `public/` 目录，VPS 的 HTTP server 直接 serve
-- 登录: admin / <ADMIN_PASSWORD>
+- 登录: admin / <ADMIN_PASSWORD from .env>
 - Pages: `/` (统计), `/notes` (知识库), `/files` (媒体文件), `/wechat` (扫码绑定), `/login`
 - `NEXT_PUBLIC_API_BASE=""` (同源请求)
 
@@ -235,7 +237,7 @@ API_PORT=18011
 # 本地构建
 cd dashboard && NEXT_PUBLIC_API_BASE="" npx next build
 # 上传到 VPS
-scp -r dashboard/out root@<VPS_IP>:/opt/pi-assistant/public
+scp -r dashboard/out root@<YOUR_VPS_IP>:/opt/pi-assistant/public
 systemctl restart pi-assistant
 ```
 
@@ -256,9 +258,9 @@ systemctl restart pi-assistant
 
 ## COS Storage
 
-- Bucket: `<COS_BUCKET>`
-- Region: `ap-shanghai`
-- Domain: `https://<COS_BUCKET>.cos.ap-shanghai.myqcloud.com`
+- Bucket: `<COS_BUCKET>` (环境变量)
+- Region: `<COS_REGION>` (默认 ap-shanghai)
+- Domain: `https://<COS_BUCKET>.cos.<COS_REGION>.myqcloud.com`
 - 路径格式: `media/{image|voice|file|video}/{date}/{timestamp}_{id}.{ext}`
 
 ## Embedding
@@ -273,16 +275,16 @@ systemctl restart pi-assistant
 
 ```bash
 # 上传代码并重启
-scp -r vps/src/* root@<VPS_IP>:/opt/pi-assistant/src/
-ssh root@<VPS_IP> "systemctl restart pi-assistant"
+scp -r vps/src/* root@<YOUR_VPS_IP>:/opt/pi-assistant/src/
+ssh root@<YOUR_VPS_IP> "systemctl restart pi-assistant"
 
 # 查看日志
-ssh root@<VPS_IP> "journalctl -u pi-assistant -f"
+ssh root@<YOUR_VPS_IP> "journalctl -u pi-assistant -f"
 
 # 重建 Dashboard 并部署
 cd dashboard && NEXT_PUBLIC_API_BASE="" npx next build
-scp -r dashboard/out root@<VPS_IP>:/opt/pi-assistant/public
-ssh root@<VPS_IP> "systemctl restart pi-assistant"
+scp -r dashboard/out root@<YOUR_VPS_IP>:/opt/pi-assistant/public
+ssh root@<YOUR_VPS_IP> "systemctl restart pi-assistant"
 ```
 
 ## Systemd Service

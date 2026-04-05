@@ -7,6 +7,7 @@ import * as ilink from './ilink'
 import type { Credentials } from './ilink'
 import { startScheduler } from './scheduler'
 import { startProactive } from './proactive'
+import { initSkills } from './skill-loader'
 
 // --- State ---
 
@@ -201,8 +202,11 @@ async function body(req: IncomingMessage): Promise<any> {
 }
 
 // Simple JWT (HMAC-SHA256)
-const JWT_SECRET = process.env.JWT_SECRET ?? '<JWT_SECRET>'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? '<ADMIN_PASSWORD>'
+const JWT_SECRET = process.env.JWT_SECRET
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+if (!JWT_SECRET || !ADMIN_PASSWORD) {
+  throw new Error('JWT_SECRET and ADMIN_PASSWORD must be set in environment')
+}
 
 function signJwt(sub: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
@@ -435,6 +439,9 @@ console.log(`
 ╚══════════════════════════════════╝
 `)
 console.log(`📡 API server: http://0.0.0.0:${config.apiPort}`)
+
+// Load skills + watch for hot-reload
+await initSkills()
 
 // Start scheduler (sends reminders via iLink)
 startScheduler(async (userId: string, text: string) => {
