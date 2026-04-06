@@ -1,8 +1,8 @@
 import { config } from './config'
 import { getCredential, setCredential, getHistory, addMessage, logMedia, getRecentLogs, insertVector } from './db'
 import { runAgent } from './agent'
-import { getEmbedding } from './embedding'
-import { getMultimodalEmbedding } from './embedding'
+import { getEmbedding, getMultimodalEmbedding } from './embedding'
+import { getSignedUrl } from './cos'
 import * as ilink from './ilink'
 import type { Credentials } from './ilink'
 import { startScheduler } from './scheduler'
@@ -67,14 +67,48 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     logMedia(contactId, 'inbound', p, 2, p)
   }
 
-  // Embed images in background (fire-and-forget)
+  // Embed images in background: VLM caption + text embedding + image embedding → vector DB
   for (const url of mediaPaths) {
     if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i)) {
-      getMultimodalEmbedding([{ image: url }]).then((embedding) => {
-        const id = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-        insertVector(id, embedding, `图片来自 ${contactId}`, 'image', contactId, 'store', url)
-        console.log(`🧠 图片已embedding并存库: ${id}`)
-      }).catch((err) => console.error('❌ 图片embedding失败:', (err as Error).message))
+      (async () => {
+        try {
+          const signedUrl = getSignedUrl(url, 600)
+
+          // 1. VLM caption via DashScope (qwen3.5-27b)
+          const captionRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.embedding.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'qwen3.5-27b',
+              messages: [
+                { role: 'system', content: '用中文简要描述这张图片的内容，包括主体、场景、颜色、风格等关键信息。只输出描述，不要其他内容。不要思考过程。' },
+                { role: 'user', content: [{ type: 'image_url', image_url: { url: signedUrl } }] },
+              ],
+            }),
+          })
+          if (!captionRes.ok) throw new Error(`VLM caption error (${captionRes.status}): ${await captionRes.text()}`)
+          const captionData = await captionRes.json() as { choices: Array<{ message: { content: string } }> }
+          const caption = captionData.choices[0]?.message?.content ?? ''
+          console.log(`📝 图片描述: ${caption.slice(0, 80)}`)
+
+          // 2. Text embedding (for text-to-image search)
+          const textEmbedding = await getEmbedding(caption)
+          const textId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+          insertVector(textId, textEmbedding, caption, 'image', contactId, 'store', url)
+          console.log(`🧠 图片文本embedding已存库: ${textId}`)
+
+          // 3. Image embedding (for image-to-image search)
+          const imgEmbedding = await getMultimodalEmbedding([{ image: signedUrl }])
+          const imgId = `imgv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+          insertVector(imgId, imgEmbedding, caption, 'image_visual', contactId, 'store', url)
+          console.log(`🧠 图片视觉embedding已存库: ${imgId}`)
+        } catch (err) {
+          console.error('❌ 图片embedding失败:', (err as Error).message)
+        }
+      })()
     }
   }
 
@@ -102,10 +136,14 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     result = { reply: '抱歉，我遇到了一些问题，请稍后再试。' }
   }
 
+  // Sign any COS URLs in reply text
+  const COS_URL_RE = /https:\/\/weixin-\d+\.cos\.[a-z-]+\.myqcloud\.com\/[^\s)\"'>]+/g
+  const signedReply = result.reply.replace(COS_URL_RE, (url) => getSignedUrl(url, 3600))
+
   // Save & send text reply
   addMessage(contactId, 'user', text)
-  addMessage(contactId, 'assistant', result.reply)
-  await ilink.sendMessage(creds!, contactId, msg.context_token, result.reply)
+  addMessage(contactId, 'assistant', signedReply)
+  await ilink.sendMessage(creds!, contactId, msg.context_token, signedReply)
   console.log(`📤 → ${contactId}: ${result.reply.slice(0, 80)}`)
 
   // Auto-index: embed user message into vector DB (fire-and-forget)
@@ -117,6 +155,7 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
   }
 
   // Send images if agent returned any
+  console.log(`🔍 Agent result imageUrls: ${JSON.stringify(result.imageUrls?.map((u: string) => u.slice(-40)) ?? null)}`)
   if (result.imageUrls?.length) {
     for (const url of result.imageUrls) {
       try {

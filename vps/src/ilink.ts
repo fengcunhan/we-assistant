@@ -1,5 +1,6 @@
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
+import { createHash } from 'crypto'
 import { config } from './config.js'
 import { uploadMediaToCOS } from './cos.js'
 
@@ -351,7 +352,6 @@ function bytesToHex(buf: Uint8Array): string {
 }
 
 function md5Hex(data: Uint8Array): string {
-  const { createHash } = require('crypto')
   return createHash('md5').update(data).digest('hex')
 }
 
@@ -384,19 +384,21 @@ export async function sendImage(creds: Credentials, toUserId: string, contextTok
       rawfilemd5: rawMd5,
       filesize: encrypted.byteLength,
       no_need_thumb: true,
-      aes_key: aesKeyHex,
+      aeskey: aesKeyHex,
       base_info: {},
     }),
   })
-  const uploadData = await uploadRes.json() as { upload_full_url?: string; upload_param?: string; ret?: number; errmsg?: string }
-  if (uploadData.ret && uploadData.ret !== 0) throw new Error(`getuploadurl failed: ${uploadData.errmsg}`)
+  const uploadData = await uploadRes.json() as Record<string, unknown>
+  console.log('🔍 getuploadurl response:', JSON.stringify(uploadData).slice(0, 500))
+  if ((uploadData.ret as number) && (uploadData.ret as number) !== 0) throw new Error(`getuploadurl failed: ${uploadData.errmsg}`)
 
   // 4. Upload to CDN
-  let cdnUrl = uploadData.upload_full_url?.trim()
+  let cdnUrl = (uploadData.upload_full_url as string)?.trim()
   if (!cdnUrl) {
     if (!uploadData.upload_param) throw new Error('No upload URL returned')
-    cdnUrl = `${CDN}/upload?encrypted_query_param=${encodeURIComponent(uploadData.upload_param)}&filekey=${encodeURIComponent(filekeyHex)}`
+    cdnUrl = `${CDN}/upload?encrypted_query_param=${encodeURIComponent(uploadData.upload_param as string)}&filekey=${encodeURIComponent(filekeyHex)}`
   }
+  console.log(`🔍 CDN upload URL: ${cdnUrl.slice(0, 120)}... size=${encrypted.byteLength}`)
 
   const cdnRes = await fetch(cdnUrl, {
     method: 'POST',
@@ -404,12 +406,16 @@ export async function sendImage(creds: Credentials, toUserId: string, contextTok
     body: encrypted,
     signal: AbortSignal.timeout(30000),
   })
-  if (!cdnRes.ok) throw new Error(`CDN upload failed: ${cdnRes.status}`)
+  if (!cdnRes.ok) {
+    const cdnBody = await cdnRes.text().catch(() => '')
+    console.error(`🔍 CDN upload error: status=${cdnRes.status} body=${cdnBody.slice(0, 300)}`)
+    throw new Error(`CDN upload failed: ${cdnRes.status}`)
+  }
   const downloadParam = cdnRes.headers.get('X-Encrypted-Param') ?? ''
   if (!downloadParam) throw new Error('CDN upload: missing X-Encrypted-Param')
 
   // 5. Send image message
-  // aeskey for message: base64 encode the hex string (matching WeClaw's AESKeyToBase64)
+  // aeskey for message: base64 encode the hex string (matching openclaw's AESKeyToBase64)
   const aesKeyB64 = Buffer.from(aesKeyHex).toString('base64')
 
   const res = await fetch(`${creds.baseURL}/ilink/bot/sendmessage`, {
@@ -417,7 +423,7 @@ export async function sendImage(creds: Credentials, toUserId: string, contextTok
     headers: headers(creds),
     body: JSON.stringify({
       msg: {
-        from_user_id: creds.ilinkBotId,
+        from_user_id: '',
         to_user_id: toUserId,
         client_id: newClientId(),
         message_type: 2, message_state: 2,
@@ -425,8 +431,12 @@ export async function sendImage(creds: Credentials, toUserId: string, contextTok
         item_list: [{
           type: 2,
           image_item: {
-            aeskey: aesKeyB64,
-            media: { encrypt_query_param: downloadParam },
+            media: {
+              encrypt_query_param: downloadParam,
+              aes_key: aesKeyB64,
+              encrypt_type: 1,
+            },
+            mid_size: encrypted.byteLength,
           },
         }],
       },

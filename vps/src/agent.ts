@@ -103,6 +103,7 @@ export async function runAgent(
 
       // Collect side effects (e.g. imageUrls)
       if (result.sideEffects) {
+        console.log(`🔍 Skill sideEffects:`, JSON.stringify(result.sideEffects))
         allSideEffects.push(result.sideEffects)
       }
 
