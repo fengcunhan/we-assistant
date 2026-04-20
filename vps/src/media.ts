@@ -28,3 +28,20 @@ export async function persistMedia(
   writeFileSync(abs, bytes)
   return abs
 }
+
+import { readFile } from 'node:fs/promises'
+
+export async function readMediaBytes(pathOrUrl: string): Promise<Uint8Array> {
+  if (isLocalPath(pathOrUrl)) {
+    const buf = await readFile(pathOrUrl)
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+  }
+  let url = pathOrUrl
+  if (config.cos.enabled && url.includes('.cos.') && url.includes('.myqcloud.com')) {
+    const { getSignedUrl } = await import('./cos.js')
+    url = getSignedUrl(pathOrUrl, 600)
+  }
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+  if (!res.ok) throw new Error(`readMediaBytes fetch failed: ${res.status}`)
+  return new Uint8Array(await res.arrayBuffer())
+}

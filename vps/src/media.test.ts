@@ -34,3 +34,16 @@ test('persistMedia: local mode writes file under MEDIA_DIR and returns absolute 
   assert.deepEqual(Uint8Array.from(read), bytes)
   rmSync(absPath)
 })
+
+import { mkdtempSync, writeFileSync as wf } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { readMediaBytes } from './media.js'
+
+test('readMediaBytes: reads local file from absolute path', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'pi-'))
+  const p = join(tmp, 'x.bin')
+  wf(p, Buffer.from([1, 2, 3, 4]))
+  const bytes = await readMediaBytes(p)
+  assert.deepEqual(Array.from(bytes), [1, 2, 3, 4])
+})
