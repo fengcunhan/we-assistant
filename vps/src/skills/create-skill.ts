@@ -1,7 +1,7 @@
 import { writeFileSync, readdirSync, unlinkSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import type { Skill, ToolResult } from './types.js'
+import type { Skill, SkillContext, ToolResult } from './types.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SKILLS_DIR = __dirname // this file is inside skills/
@@ -26,7 +26,7 @@ const skill: Skill = {
       function: {
         name: 'create_skill',
         description:
-          '创建一个新技能。提供技能名称、描述、工具定义和执行代码。创建后无需重启，下次对话即可使用。',
+          '创建一个新技能。如果同名技能已存在，会返回提示，需要用户确认后再用 force=true 覆盖。创建后无需重启，下次对话即可使用。',
         parameters: {
           type: 'object',
           properties: {
@@ -47,6 +47,10 @@ const skill: Skill = {
               type: 'string',
               description:
                 '工具执行函数体的 TypeScript 代码。可用变量: toolName (string), args (Record<string,unknown>), context ({userId, userMessage})。必须返回 { content: string, sideEffects?: Record<string,unknown> }。可以使用 fetch() 调用外部 API。',
+            },
+            force: {
+              type: 'boolean',
+              description: '当同名技能已存在时，设为 true 强制覆盖。默认 false。只有在用户明确确认要覆盖后才设为 true。',
             },
           },
           required: ['skill_name', 'skill_description', 'tools_json', 'execute_code'],
@@ -80,8 +84,24 @@ const skill: Skill = {
     },
   ],
 
-  async execute(toolName, args, _context): Promise<ToolResult> {
+  async execute(toolName, args, context): Promise<ToolResult> {
     if (toolName === 'create_skill') {
+      const name = args.skill_name as string
+      const force = args.force as boolean | undefined
+      const filename = `${name}.ts`
+      const filePath = join(SKILLS_DIR, filename)
+
+      // Check if skill already exists (skip for force overwrite)
+      if (!force && !PROTECTED.has(filename) && existsSync(filePath)) {
+        return {
+          content: `技能「${name}」已经存在。请询问用户是否需要覆盖重新创建。如果用户确认，请再次调用 create_skill 并设置 force=true。`,
+        }
+      }
+
+      // Acknowledge receipt immediately before creating
+      if (context.sendMessage) {
+        await context.sendMessage('收到你的需求了，正在为你创建技能，请稍等...')
+      }
       return createSkill(args)
     }
     if (toolName === 'list_skills') {

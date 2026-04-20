@@ -148,7 +148,9 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
   const history = getHistory(contactId).reverse()
   let result: { reply: string; imageUrls?: string[] }
   try {
-    result = await runAgent(text, contactId, history)
+    const sendIntermediate = (text: string) =>
+      ilink.sendMessage(creds!, contactId, msg.context_token, text)
+    result = await runAgent(text, contactId, history, sendIntermediate)
   } catch (err) {
     console.error('❌ Agent error:', err)
     result = { reply: '抱歉，我遇到了一些问题，请稍后再试。' }

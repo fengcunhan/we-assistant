@@ -37,6 +37,7 @@ db.exec(`
     next_run_at INTEGER,               -- ms epoch
     last_run_at INTEGER,
     last_status TEXT,                   -- 'ok' | 'error'
+    job_type TEXT,                       -- 'daily_summary' | null
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
@@ -59,6 +60,26 @@ export function getHistory(contactId: string, limit = 20): Array<{ role: string;
   return db.prepare(
     'SELECT role, content FROM conversations WHERE contact_id = ? ORDER BY timestamp DESC LIMIT ?'
   ).all(contactId, limit) as Array<{ role: string; content: string }>
+}
+
+export function getConversationsByDateRange(
+  userId: string,
+  startMs: number,
+  endMs: number,
+): Array<{ role: string; content: string; timestamp: number }> {
+  return db.prepare(
+    'SELECT role, content, timestamp FROM conversations WHERE contact_id = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp ASC'
+  ).all(userId, startMs, endMs) as Array<{ role: string; content: string; timestamp: number }>
+}
+
+export function getImageCaptionsByDateRange(
+  userId: string,
+  startMs: number,
+  endMs: number,
+): Array<{ content: string; media_url: string | null; timestamp: number }> {
+  return db.prepare(
+    "SELECT content, media_url, timestamp FROM vectors WHERE user_id = ? AND intent_type = 'image' AND timestamp >= ? AND timestamp < ? ORDER BY timestamp ASC"
+  ).all(userId, startMs, endMs) as Array<{ content: string; media_url: string | null; timestamp: number }>
 }
 
 export function addMessage(contactId: string, role: 'user' | 'assistant', content: string): void {
@@ -171,6 +192,7 @@ export interface CronJob {
   next_run_at: number | null
   last_run_at: number | null
   last_status: string | null
+  job_type: string | null
   created_at: number
   updated_at: number
 }
@@ -178,9 +200,9 @@ export interface CronJob {
 export function createCronJob(job: Omit<CronJob, 'created_at' | 'updated_at'>): void {
   const now = Date.now()
   db.prepare(
-    `INSERT INTO cron_jobs (id, name, user_id, schedule_kind, schedule_value, schedule_tz, payload, enabled, next_run_at, last_run_at, last_status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(job.id, job.name, job.user_id, job.schedule_kind, job.schedule_value, job.schedule_tz, job.payload, job.enabled, job.next_run_at, job.last_run_at, job.last_status, now, now)
+    `INSERT INTO cron_jobs (id, name, user_id, schedule_kind, schedule_value, schedule_tz, payload, enabled, next_run_at, last_run_at, last_status, job_type, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(job.id, job.name, job.user_id, job.schedule_kind, job.schedule_value, job.schedule_tz, job.payload, job.enabled, job.next_run_at, job.last_run_at, job.last_status, job.job_type, now, now)
 }
 
 export function getCronJobs(userId?: string): CronJob[] {

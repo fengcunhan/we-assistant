@@ -36,4 +36,6 @@ export interface Skill {
 export interface SkillContext {
   userId: string
   userMessage: string
+  /** Send an intermediate message to the user (before tool result is ready) */
+  sendMessage?: (text: string) => Promise<void>
 }

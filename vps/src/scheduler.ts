@@ -4,8 +4,15 @@ const CHECK_INTERVAL_MS = 30_000 // check every 30s
 
 type SendFn = (userId: string, text: string) => Promise<void>
 
+type JobExecutor = (job: CronJob) => Promise<string>
+
 let timer: ReturnType<typeof setInterval> | null = null
 let sendFn: SendFn | null = null
+const jobExecutors = new Map<string, JobExecutor>()
+
+export function registerJobExecutor(jobType: string, executor: JobExecutor): void {
+  jobExecutors.set(jobType, executor)
+}
 
 /** Compute next run time for recurring jobs */
 export function computeNextRunAt(job: CronJob, afterMs: number): number | null {
@@ -78,7 +85,9 @@ async function executeJob(job: CronJob): Promise<void> {
   if (!sendFn) return
 
   try {
-    await sendFn(job.user_id, job.payload)
+    const executor = jobExecutors.get(job.job_type ?? '')
+    const payload = executor ? await executor(job) : job.payload
+    await sendFn(job.user_id, payload)
     const nextRunAt = computeNextRunAt(job, Date.now())
     updateCronJobAfterRun(job.id, 'ok', nextRunAt)
 

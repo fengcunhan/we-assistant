@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node --import tsx src/index.ts",
-    "dev": "node --watch --import tsx src/index.ts",
+    "start": "node --env-file=.env --import tsx src/index.ts",
+    "dev": "node --env-file=.env --watch --import tsx src/index.ts",
     "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
