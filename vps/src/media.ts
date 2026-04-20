@@ -73,7 +73,11 @@ export function toDisplayUrl(pathOrUrl: string): string {
     return pathOrUrl
   }
   const mediaRoot = resolve(config.mediaDir)
-  const rel = relative(mediaRoot, pathOrUrl).split(sep).join('/')
+  const abs = resolve(pathOrUrl)
+  if (abs !== mediaRoot && !abs.startsWith(mediaRoot + sep)) {
+    throw new Error(`toDisplayUrl: path outside mediaDir: ${pathOrUrl}`)
+  }
+  const rel = relative(mediaRoot, abs).split(sep).join('/')
   return `/media/${rel}`
 }
 

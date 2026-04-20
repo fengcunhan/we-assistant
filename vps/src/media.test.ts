@@ -87,6 +87,10 @@ test('toDisplayUrl: local abs path → /media/<rel>', () => {
   assert.equal(toDisplayUrl(abs), '/media/image/2026-04-20/x.jpg')
 })
 
+test('toDisplayUrl: local path outside mediaDir throws', () => {
+  assert.throws(() => toDisplayUrl('/tmp/elsewhere/x.jpg'), /outside mediaDir/)
+})
+
 test('resolveLocalMedia: rejects path traversal', () => {
   assert.equal(resolveLocalMedia('../etc/passwd'), null)
   assert.equal(resolveLocalMedia('image/../../../../etc/passwd'), null)
