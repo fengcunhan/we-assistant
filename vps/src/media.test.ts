@@ -35,6 +35,13 @@ test('persistMedia: local mode writes file under MEDIA_DIR and returns absolute 
   rmSync(absPath)
 })
 
+test('persistMedia: fileName without extension falls back to default ext', async () => {
+  const bytes = new Uint8Array([0x01])
+  const abs = await persistMedia(bytes, 'image', 'noext')
+  assert.match(abs, /\.jpg$/, `got: ${abs}`)
+  rmSync(abs)
+})
+
 import { mkdtempSync, writeFileSync as wf } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

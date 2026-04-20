@@ -21,7 +21,8 @@ export async function persistMedia(
   }
   const date = new Date().toISOString().slice(0, 10)
   const id = Math.random().toString(36).slice(2, 8)
-  const ext = fileName ? fileName.slice(fileName.lastIndexOf('.')) : EXT_MAP[mediaType]
+  const dot = fileName ? fileName.lastIndexOf('.') : -1
+  const ext = dot >= 0 ? fileName!.slice(dot) : EXT_MAP[mediaType]
   const dir = join(config.mediaDir, mediaType, date)
   mkdirSync(dir, { recursive: true })
   const abs = resolve(dir, `${Date.now()}_${id}${ext}`)
