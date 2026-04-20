@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node --import tsx src/index.ts",
-    "dev": "node --watch --import tsx src/index.ts"
+    "dev": "node --watch --import tsx src/index.ts",
+    "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

@@ -1,6 +1,5 @@
 import { getEmbedding } from '../embedding.js'
 import { queryVectors } from '../db.js'
-import { getSignedUrl } from '../cos.js'
 import type { Skill, ToolResult } from './types.js'
 
 const skill: Skill = {
@@ -51,7 +50,7 @@ const skill: Skill = {
 
     return {
       content: `找到 ${matched.length} 张相关图片，图片将自动单独发送给用户，你只需要简要告诉用户找到了什么图片即可，不要说没有图片链接:\n${desc}`,
-      sideEffects: { imageUrls: matched.map((r) => getSignedUrl(r.mediaUrl!, 3600)) },
+      sideEffects: { imageUrls: matched.map((r) => r.mediaUrl!) },
     }
   },
 }

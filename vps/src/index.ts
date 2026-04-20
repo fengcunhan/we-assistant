@@ -72,7 +72,18 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i)) {
       (async () => {
         try {
-          const signedUrl = getSignedUrl(url, 600)
+          const { isLocalPath, readMediaBytes } = await import('./media.js')
+          const bytes = await readMediaBytes(url)
+          const MAX_VLM_BYTES = 4 * 1024 * 1024
+          if (bytes.byteLength > MAX_VLM_BYTES) {
+            console.log(`🖼️ 图片过大 (${bytes.byteLength} bytes)，跳过 VLM 描述与图片检索索引`)
+            return
+          }
+          const mime = url.toLowerCase().endsWith('.png') ? 'image/png'
+            : url.toLowerCase().endsWith('.webp') ? 'image/webp'
+            : url.toLowerCase().endsWith('.gif') ? 'image/gif'
+            : 'image/jpeg'
+          const dataUri = `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
 
           // 1. VLM caption via DashScope (qwen3.5-27b)
           const captionRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
@@ -85,7 +96,7 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
               model: 'qwen3.5-27b',
               messages: [
                 { role: 'system', content: '用中文简要描述这张图片的内容，包括主体、场景、颜色、风格等关键信息。只输出描述，不要其他内容。不要思考过程。' },
-                { role: 'user', content: [{ type: 'image_url', image_url: { url: signedUrl } }] },
+                { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUri } }] },
               ],
             }),
           })
@@ -100,11 +111,18 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
           insertVector(textId, textEmbedding, caption, 'image', contactId, 'store', url)
           console.log(`🧠 图片文本embedding已存库: ${textId}`)
 
-          // 3. Image embedding (for image-to-image search)
-          const imgEmbedding = await getMultimodalEmbedding([{ image: signedUrl }])
-          const imgId = `imgv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-          insertVector(imgId, imgEmbedding, caption, 'image_visual', contactId, 'store', url)
-          console.log(`🧠 图片视觉embedding已存库: ${imgId}`)
+          // 3. Image embedding (for image-to-image search) — requires a public URL,
+          // which is unavailable in local-mode, so skip and rely on textual caption.
+          if (isLocalPath(url)) {
+            console.log('🖼️ 本地模式：跳过图片视觉 embedding（仅保留文本描述检索）')
+          } else {
+            const { getSignedUrl } = await import('./cos.js')
+            const signedUrl = getSignedUrl(url, 600)
+            const imgEmbedding = await getMultimodalEmbedding([{ image: signedUrl }])
+            const imgId = `imgv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+            insertVector(imgId, imgEmbedding, caption, 'image_visual', contactId, 'store', url)
+            console.log(`🧠 图片视觉embedding已存库: ${imgId}`)
+          }
         } catch (err) {
           console.error('❌ 图片embedding失败:', (err as Error).message)
         }
@@ -313,6 +331,21 @@ const server = createServer(async (req, res) => {
       return json(res, { status: 'ok', running, botId: creds?.ilinkBotId ?? null })
     }
 
+    // Public: local media files (complements /api/files when COS disabled)
+    if (method === 'GET' && url.pathname.startsWith('/media/')) {
+      const { resolveLocalMedia, MIME_BY_EXT } = await import('./media.js')
+      const rel = decodeURIComponent(url.pathname.slice('/media/'.length))
+      const abs = resolveLocalMedia(rel)
+      if (!abs || !existsSync(abs) || !statSync(abs).isFile()) {
+        return json(res, { error: 'Not found' }, 404)
+      }
+      const ext = extname(abs).toLowerCase()
+      const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=300' })
+      createReadStream(abs).pipe(res)
+      return
+    }
+
     // Auth
     if (url.pathname === '/api/auth/login' && method === 'POST') {
       const { username, password } = await body(req)
@@ -448,11 +481,15 @@ const server = createServer(async (req, res) => {
     // --- Files ---
     if (url.pathname === '/api/files' && method === 'GET') {
       const { getFiles } = await import('./db.js')
-      const { getSignedUrl } = await import('./cos.js')
-      const files = (getFiles() as any[]).map((f) => ({
-        ...f,
-        signed_url: f.media_path ? getSignedUrl(f.media_path) : null,
-      }))
+      const { toDisplayUrl } = await import('./media.js')
+      const files = (getFiles() as any[]).map((f) => {
+        let signed_url = null
+        if (f.media_path) {
+          try { signed_url = toDisplayUrl(f.media_path) }
+          catch (err) { console.warn(`⚠️ bad media_path ${f.media_path}:`, (err as Error).message) }
+        }
+        return { ...f, signed_url }
+      })
       return json(res, { files })
     }
 

@@ -1,8 +1,4 @@
-import { writeFile } from 'fs/promises'
-import { join } from 'path'
 import { createHash } from 'crypto'
-import { config } from './config.js'
-import { uploadMediaToCOS } from './cos.js'
 
 export interface Credentials {
   botToken: string
@@ -182,7 +178,6 @@ function decryptAesEcb(data: Uint8Array, key: Uint8Array): Uint8Array {
 }
 
 const CDN = 'https://novac2c.cdn.weixin.qq.com/c2c'
-const EXT_MAP: Record<string, string> = { image: '.jpg', voice: '.silk', file: '', video: '.mp4' }
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2)
@@ -212,21 +207,10 @@ export async function downloadMedia(
   const keyBuf = hexToBytes(aesKeyHex)
   const decrypted = decryptAesEcb(encrypted, keyBuf)
 
-  // Upload to COS if configured, otherwise save locally
-  if (config.cos.secretId && config.cos.secretKey) {
-    const cosUrl = await uploadMediaToCOS(decrypted, mediaType, fileName)
-    console.log(`☁️ COS uploaded: ${cosUrl}`)
-    return cosUrl
-  }
-
-  // Fallback: save to local disk
-  const name = fileName ?? `${Date.now()}_${Math.random().toString(36).slice(2, 6)}${EXT_MAP[mediaType] ?? ''}`
-  const dir = join(config.mediaDir, mediaType)
-  const { mkdirSync } = await import('fs')
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, name)
-  await writeFile(path, decrypted)
-  return path
+  const { persistMedia } = await import('./media.js')
+  const stored = await persistMedia(decrypted, mediaType, fileName)
+  console.log(`📦 media stored: ${stored}`)
+  return stored
 }
 
 /** Resolve aes key to hex string. item.aeskey is hex directly; media.aes_key is base64-encoded hex. */
@@ -359,10 +343,9 @@ function md5Hex(data: Uint8Array): string {
  * Send an image from a URL (e.g. COS) to a WeChat user via iLink.
  */
 export async function sendImage(creds: Credentials, toUserId: string, contextToken: string, imageUrl: string): Promise<void> {
-  // 1. Download image
-  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15000) })
-  if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`)
-  const raw = new Uint8Array(await imgRes.arrayBuffer())
+  // 1. Read image bytes (local path or remote URL)
+  const { readMediaBytes } = await import('./media.js')
+  const raw = await readMediaBytes(imageUrl)
 
   // 2. Generate AES key + encrypt
   const aesKey = new Uint8Array(16)

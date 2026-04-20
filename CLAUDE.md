@@ -307,6 +307,20 @@ EnvironmentFile=/opt/pi-assistant/.env
 WantedBy=multi-user.target
 ```
 
+## Storage Modes
+
+自动检测：`COS_BUCKET` + `COS_SECRET_ID` + `COS_SECRET_KEY` 三者齐备 → COS 模式；否则 → 本地模式。
+
+| 能力 | COS | 本地 |
+|---|---|---|
+| 媒体落盘 | COS Bucket | `./data/media/<type>/<date>/` |
+| 对外访问 | 签名 URL (`getSignedUrl`) | `GET /media/<rel>` (未鉴权) |
+| VLM 描述 | 公网 URL | base64 data URI (≤4MB) |
+| 图片→图片搜索 | ✅ | ⚠️ 跳过 |
+| `sendImage` | fetch(COS) | 本地读文件 |
+
+路径/URL 统一抽象在 `src/media.ts`：`isLocalPath`、`persistMedia`、`readMediaBytes`、`toBase64DataUri`、`toDisplayUrl`、`resolveLocalMedia`。
+
 ## Known Issues
 
 1. **iLink 屏蔽海外 IP**: Cloudflare Workers 无法直接调用 iLink API (403 error 1003)，必须从国内 VPS 发起请求

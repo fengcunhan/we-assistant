@@ -1,11 +1,16 @@
 import { createHmac, createHash } from 'crypto'
 import { config } from './config.js'
 
-const BUCKET = process.env.COS_BUCKET ?? ''
-const REGION = process.env.COS_REGION ?? 'ap-shanghai'
-if (!BUCKET) throw new Error('COS_BUCKET must be set in environment')
-const COS_HOST = `${BUCKET}.cos.${REGION}.myqcloud.com`
-const COS_BASE = `https://${COS_HOST}`
+function cosHost(): string {
+  if (!config.cos.enabled) {
+    throw new Error('COS is not configured (set COS_BUCKET/COS_SECRET_ID/COS_SECRET_KEY)')
+  }
+  return `${config.cos.bucket}.cos.${config.cos.region}.myqcloud.com`
+}
+
+function cosBase(): string {
+  return `https://${cosHost()}`
+}
 
 /**
  * Generate Tencent COS authorization header.
@@ -44,7 +49,7 @@ export function getSignedUrl(cosUrl: string, expSeconds = 3600): string {
   const url = new URL(cosUrl)
   const path = url.pathname
   const authorization = sign('GET', path, {})
-  return `${COS_BASE}${path}?${authorization}`
+  return `${cosBase()}${path}?${authorization}`
 }
 
 export async function uploadToCOS(
@@ -55,13 +60,15 @@ export async function uploadToCOS(
   const path = `/${key}`
   const authorization = sign('PUT', path, {})
 
-  const res = await fetch(`${COS_BASE}${path}`, {
+  const host = cosHost()
+  const base = `https://${host}`
+  const res = await fetch(`${base}${path}`, {
     method: 'PUT',
     headers: {
       Authorization: authorization,
       'Content-Type': contentType,
       'Content-Length': String(data.byteLength),
-      Host: COS_HOST,
+      Host: host,
     },
     body: data,
     signal: AbortSignal.timeout(30000),
@@ -72,7 +79,7 @@ export async function uploadToCOS(
     throw new Error(`COS upload failed (${res.status}): ${body.slice(0, 200)}`)
   }
 
-  return `${COS_BASE}${path}`
+  return `${base}${path}`
 }
 
 /**
