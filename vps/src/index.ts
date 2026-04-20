@@ -321,6 +321,25 @@ const server = createServer(async (req, res) => {
       return json(res, { status: 'ok', running, botId: creds?.ilinkBotId ?? null })
     }
 
+    // Public: local media files (complements /api/files when COS disabled)
+    if (method === 'GET' && url.pathname.startsWith('/media/')) {
+      const { resolveLocalMedia } = await import('./media.js')
+      const rel = decodeURIComponent(url.pathname.slice('/media/'.length))
+      const abs = resolveLocalMedia(rel)
+      if (!abs || !existsSync(abs) || !statSync(abs).isFile()) {
+        return json(res, { error: 'Not found' }, 404)
+      }
+      const ext = extname(abs).toLowerCase()
+      const mime = ({
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+        '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+        '.silk': 'audio/silk', '.mp4': 'video/mp4',
+      } as Record<string, string>)[ext] ?? 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=300' })
+      createReadStream(abs).pipe(res)
+      return
+    }
+
     // Auth
     if (url.pathname === '/api/auth/login' && method === 'POST') {
       const { username, password } = await body(req)
