@@ -45,3 +45,18 @@ export async function readMediaBytes(pathOrUrl: string): Promise<Uint8Array> {
   if (!res.ok) throw new Error(`readMediaBytes fetch failed: ${res.status}`)
   return new Uint8Array(await res.arrayBuffer())
 }
+
+import { extname } from 'node:path'
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.png': 'image/png', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp',
+}
+
+export async function toBase64DataUri(pathOrUrl: string, mimeType?: string): Promise<string> {
+  const bytes = await readMediaBytes(pathOrUrl)
+  const mime = mimeType ?? MIME_BY_EXT[extname(pathOrUrl).toLowerCase()] ?? 'image/jpeg'
+  const b64 = Buffer.from(bytes).toString('base64')
+  return `data:${mime};base64,${b64}`
+}

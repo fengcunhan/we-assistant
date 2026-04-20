@@ -47,3 +47,22 @@ test('readMediaBytes: reads local file from absolute path', async () => {
   const bytes = await readMediaBytes(p)
   assert.deepEqual(Array.from(bytes), [1, 2, 3, 4])
 })
+
+import { toBase64DataUri } from './media.js'
+
+test('toBase64DataUri: local file → data URI with correct mime by extension', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'pi-'))
+  const p = join(tmp, 'x.png')
+  wf(p, Buffer.from([1, 2, 3]))
+  const uri = await toBase64DataUri(p)
+  assert.match(uri, /^data:image\/png;base64,/)
+  assert.equal(uri.split(',')[1], Buffer.from([1, 2, 3]).toString('base64'))
+})
+
+test('toBase64DataUri: explicit mime override', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'pi-'))
+  const p = join(tmp, 'x.bin')
+  wf(p, Buffer.from([9]))
+  const uri = await toBase64DataUri(p, 'image/webp')
+  assert.match(uri, /^data:image\/webp;base64,/)
+})
