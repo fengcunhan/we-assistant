@@ -456,10 +456,10 @@ const server = createServer(async (req, res) => {
     // --- Files ---
     if (url.pathname === '/api/files' && method === 'GET') {
       const { getFiles } = await import('./db.js')
-      const { getSignedUrl } = await import('./cos.js')
+      const { toDisplayUrl } = await import('./media.js')
       const files = (getFiles() as any[]).map((f) => ({
         ...f,
-        signed_url: f.media_path ? getSignedUrl(f.media_path) : null,
+        signed_url: f.media_path ? toDisplayUrl(f.media_path) : null,
       }))
       return json(res, { files })
     }
