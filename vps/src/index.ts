@@ -482,10 +482,14 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/files' && method === 'GET') {
       const { getFiles } = await import('./db.js')
       const { toDisplayUrl } = await import('./media.js')
-      const files = (getFiles() as any[]).map((f) => ({
-        ...f,
-        signed_url: f.media_path ? toDisplayUrl(f.media_path) : null,
-      }))
+      const files = (getFiles() as any[]).map((f) => {
+        let signed_url = null
+        if (f.media_path) {
+          try { signed_url = toDisplayUrl(f.media_path) }
+          catch (err) { console.warn(`⚠️ bad media_path ${f.media_path}:`, (err as Error).message) }
+        }
+        return { ...f, signed_url }
+      })
       return json(res, { files })
     }
 
