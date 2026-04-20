@@ -21,3 +21,16 @@ test('isLocalPath: relative path → true', () => {
 test('isLocalPath: case-insensitive protocol → false', () => {
   assert.equal(isLocalPath('HTTPS://example.com/foo.jpg'), false)
 })
+
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { persistMedia } from './media.js'
+
+test('persistMedia: local mode writes file under MEDIA_DIR and returns absolute path', async () => {
+  const bytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])
+  const absPath = await persistMedia(bytes, 'image')
+  assert.ok(absPath.includes('/data/media/image/'), `got: ${absPath}`)
+  assert.ok(existsSync(absPath), 'file should exist on disk')
+  const read = readFileSync(absPath)
+  assert.deepEqual(Uint8Array.from(read), bytes)
+  rmSync(absPath)
+})
