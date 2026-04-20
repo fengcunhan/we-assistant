@@ -66,3 +66,26 @@ test('toBase64DataUri: explicit mime override', async () => {
   const uri = await toBase64DataUri(p, 'image/webp')
   assert.match(uri, /^data:image\/webp;base64,/)
 })
+
+import { resolve } from 'node:path'
+import { toDisplayUrl, resolveLocalMedia } from './media.js'
+import { config as cfg } from './config.js'
+
+test('toDisplayUrl: http URL passes through (COS disabled path)', () => {
+  assert.equal(toDisplayUrl('http://example.com/a.jpg'), 'http://example.com/a.jpg')
+})
+
+test('toDisplayUrl: local abs path → /media/<rel>', () => {
+  const abs = resolve(cfg.mediaDir, 'image/2026-04-20/x.jpg')
+  assert.equal(toDisplayUrl(abs), '/media/image/2026-04-20/x.jpg')
+})
+
+test('resolveLocalMedia: rejects path traversal', () => {
+  assert.equal(resolveLocalMedia('../etc/passwd'), null)
+  assert.equal(resolveLocalMedia('image/../../../../etc/passwd'), null)
+})
+
+test('resolveLocalMedia: accepts legit nested path', () => {
+  const p = resolveLocalMedia('image/2026-04-20/x.jpg')
+  assert.ok(p && p.startsWith(resolve(cfg.mediaDir)))
+})

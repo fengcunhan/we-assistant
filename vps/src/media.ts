@@ -60,3 +60,26 @@ export async function toBase64DataUri(pathOrUrl: string, mimeType?: string): Pro
   const b64 = Buffer.from(bytes).toString('base64')
   return `data:${mime};base64,${b64}`
 }
+
+import { relative, sep } from 'node:path'
+import { getSignedUrl } from './cos.js'
+
+export function toDisplayUrl(pathOrUrl: string): string {
+  if (!isLocalPath(pathOrUrl)) {
+    if (config.cos.enabled && pathOrUrl.includes('.cos.') && pathOrUrl.includes('.myqcloud.com')) {
+      return getSignedUrl(pathOrUrl, 3600)
+    }
+    return pathOrUrl
+  }
+  const mediaRoot = resolve(config.mediaDir)
+  const rel = relative(mediaRoot, pathOrUrl).split(sep).join('/')
+  return `/media/${rel}`
+}
+
+/** Given a `/media/<rel>` suffix, return absolute path if safe, else null. */
+export function resolveLocalMedia(rel: string): string | null {
+  const mediaRoot = resolve(config.mediaDir)
+  const abs = resolve(mediaRoot, rel)
+  if (abs !== mediaRoot && !abs.startsWith(mediaRoot + sep)) return null
+  return abs
+}
