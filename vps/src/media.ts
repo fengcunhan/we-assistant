@@ -81,7 +81,16 @@ export function toDisplayUrl(pathOrUrl: string): string {
   return `/media/${rel}`
 }
 
-/** Given a `/media/<rel>` suffix, return absolute path if safe, else null. */
+/**
+ * Given a `/media/<rel>` URL suffix, return an absolute path safely under
+ * config.mediaDir, or null if the input escapes that root. Rejects empty
+ * input and absolute paths.
+ *
+ * CONTRACT: `rel` MUST be URL-decoded by the caller (e.g. `decodeURIComponent`).
+ * Passing a percent-encoded string means traversal attempts encoded as `%2e%2e`
+ * will slip through as literal filenames and cause readFile to ENOENT rather
+ * than being rejected here.
+ */
 export function resolveLocalMedia(rel: string): string | null {
   if (!rel || isAbsolute(rel)) return null
   const mediaRoot = resolve(config.mediaDir)
