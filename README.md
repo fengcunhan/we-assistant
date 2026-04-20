@@ -143,3 +143,31 @@ interface Skill {
 ## License
 
 Private project.
+
+## 本地开发（无需 COS）
+
+无需配置腾讯云 COS 也能启动完整的微信机器人闭环。最小 `.env`（放在 `vps/.env`）：
+
+```
+LLM_API_KEY=<智谱 API Key>
+DASHSCOPE_API_KEY=<百炼 API Key>
+JWT_SECRET=<任意长字符串>
+ADMIN_PASSWORD=<你设的面板密码>
+```
+
+启动：
+
+```bash
+cd vps
+npm install
+npm run dev
+```
+
+- Dashboard: `http://localhost:18011`
+- 媒体文件落到 `vps/data/media/<type>/<date>/`
+- 媒体通过 `GET /media/<rel>` 对外可读（**未鉴权**，勿暴露到公网）
+- 图片 VLM 描述正常工作（≤4MB 时 base64 内联给 DashScope）
+- 文字→图片搜索正常工作（基于 VLM 描述的文本向量）
+- **图片→图片搜索在本地模式下不可用**（DashScope 多模态 embedding 只收公网 URL）
+
+切换到 COS 模式：在 `.env` 补齐 `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_BUCKET`，重启即可。
