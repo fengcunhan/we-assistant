@@ -72,8 +72,18 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i)) {
       (async () => {
         try {
-          const { toBase64DataUri, isLocalPath } = await import('./media.js')
-          const dataUri = await toBase64DataUri(url)
+          const { isLocalPath, readMediaBytes } = await import('./media.js')
+          const bytes = await readMediaBytes(url)
+          const MAX_VLM_BYTES = 4 * 1024 * 1024
+          if (bytes.byteLength > MAX_VLM_BYTES) {
+            console.log(`🖼️ 图片过大 (${bytes.byteLength} bytes)，跳过 VLM 描述与图片检索索引`)
+            return
+          }
+          const mime = url.toLowerCase().endsWith('.png') ? 'image/png'
+            : url.toLowerCase().endsWith('.webp') ? 'image/webp'
+            : url.toLowerCase().endsWith('.gif') ? 'image/gif'
+            : 'image/jpeg'
+          const dataUri = `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
 
           // 1. VLM caption via DashScope (qwen3.5-27b)
           const captionRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
