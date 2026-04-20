@@ -15,6 +15,9 @@ export const config = {
     baseURL: process.env.ILINK_BASE_URL ?? 'https://ilinkai.weixin.qq.com',
   },
   cos: {
+    enabled: !!(process.env.COS_BUCKET && process.env.COS_SECRET_ID && process.env.COS_SECRET_KEY),
+    bucket: process.env.COS_BUCKET ?? '',
+    region: process.env.COS_REGION ?? 'ap-shanghai',
     secretId: process.env.COS_SECRET_ID ?? '',
     secretKey: process.env.COS_SECRET_KEY ?? '',
   },
