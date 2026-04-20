@@ -72,7 +72,8 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
     if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp)/i)) {
       (async () => {
         try {
-          const signedUrl = getSignedUrl(url, 600)
+          const { toBase64DataUri, isLocalPath } = await import('./media.js')
+          const dataUri = await toBase64DataUri(url)
 
           // 1. VLM caption via DashScope (qwen3.5-27b)
           const captionRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
@@ -85,7 +86,7 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
               model: 'qwen3.5-27b',
               messages: [
                 { role: 'system', content: '用中文简要描述这张图片的内容，包括主体、场景、颜色、风格等关键信息。只输出描述，不要其他内容。不要思考过程。' },
-                { role: 'user', content: [{ type: 'image_url', image_url: { url: signedUrl } }] },
+                { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUri } }] },
               ],
             }),
           })
@@ -100,11 +101,18 @@ async function handleMessage(msg: ilink.ILinkMessage): Promise<void> {
           insertVector(textId, textEmbedding, caption, 'image', contactId, 'store', url)
           console.log(`🧠 图片文本embedding已存库: ${textId}`)
 
-          // 3. Image embedding (for image-to-image search)
-          const imgEmbedding = await getMultimodalEmbedding([{ image: signedUrl }])
-          const imgId = `imgv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-          insertVector(imgId, imgEmbedding, caption, 'image_visual', contactId, 'store', url)
-          console.log(`🧠 图片视觉embedding已存库: ${imgId}`)
+          // 3. Image embedding (for image-to-image search) — requires a public URL,
+          // which is unavailable in local-mode, so skip and rely on textual caption.
+          if (isLocalPath(url)) {
+            console.log('🖼️ 本地模式：跳过图片视觉 embedding（仅保留文本描述检索）')
+          } else {
+            const { getSignedUrl } = await import('./cos.js')
+            const signedUrl = getSignedUrl(url, 600)
+            const imgEmbedding = await getMultimodalEmbedding([{ image: signedUrl }])
+            const imgId = `imgv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+            insertVector(imgId, imgEmbedding, caption, 'image_visual', contactId, 'store', url)
+            console.log(`🧠 图片视觉embedding已存库: ${imgId}`)
+          }
         } catch (err) {
           console.error('❌ 图片embedding失败:', (err as Error).message)
         }
