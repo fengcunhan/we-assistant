@@ -49,10 +49,11 @@ export async function readMediaBytes(pathOrUrl: string): Promise<Uint8Array> {
 
 import { extname } from 'node:path'
 
-const MIME_BY_EXT: Record<string, string> = {
+export const MIME_BY_EXT: Record<string, string> = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.png': 'image/png', '.gif': 'image/gif',
   '.webp': 'image/webp', '.bmp': 'image/bmp',
+  '.silk': 'audio/silk', '.mp4': 'video/mp4',
 }
 
 export async function toBase64DataUri(pathOrUrl: string, mimeType?: string): Promise<string> {
