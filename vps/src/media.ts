@@ -61,7 +61,7 @@ export async function toBase64DataUri(pathOrUrl: string, mimeType?: string): Pro
   return `data:${mime};base64,${b64}`
 }
 
-import { relative, sep } from 'node:path'
+import { relative, sep, isAbsolute } from 'node:path'
 import { getSignedUrl } from './cos.js'
 
 export function toDisplayUrl(pathOrUrl: string): string {
@@ -78,8 +78,9 @@ export function toDisplayUrl(pathOrUrl: string): string {
 
 /** Given a `/media/<rel>` suffix, return absolute path if safe, else null. */
 export function resolveLocalMedia(rel: string): string | null {
+  if (!rel || isAbsolute(rel)) return null
   const mediaRoot = resolve(config.mediaDir)
   const abs = resolve(mediaRoot, rel)
-  if (abs !== mediaRoot && !abs.startsWith(mediaRoot + sep)) return null
+  if (!abs.startsWith(mediaRoot + sep)) return null
   return abs
 }

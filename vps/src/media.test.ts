@@ -89,3 +89,15 @@ test('resolveLocalMedia: accepts legit nested path', () => {
   const p = resolveLocalMedia('image/2026-04-20/x.jpg')
   assert.ok(p && p.startsWith(resolve(cfg.mediaDir)))
 })
+
+test('resolveLocalMedia: empty string → null', () => {
+  assert.equal(resolveLocalMedia(''), null)
+})
+
+test('resolveLocalMedia: absolute path → null', () => {
+  assert.equal(resolveLocalMedia('/etc/passwd'), null)
+})
+
+test('resolveLocalMedia: single dot-dot → null', () => {
+  assert.equal(resolveLocalMedia('..'), null)
+})
