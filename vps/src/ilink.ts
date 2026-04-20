@@ -343,10 +343,9 @@ function md5Hex(data: Uint8Array): string {
  * Send an image from a URL (e.g. COS) to a WeChat user via iLink.
  */
 export async function sendImage(creds: Credentials, toUserId: string, contextToken: string, imageUrl: string): Promise<void> {
-  // 1. Download image
-  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15000) })
-  if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`)
-  const raw = new Uint8Array(await imgRes.arrayBuffer())
+  // 1. Read image bytes (local path or remote URL)
+  const { readMediaBytes } = await import('./media.js')
+  const raw = await readMediaBytes(imageUrl)
 
   // 2. Generate AES key + encrypt
   const aesKey = new Uint8Array(16)
