@@ -56,10 +56,10 @@ export function setCredential(key: string, value: string): void {
 
 // --- Conversations ---
 
-export function getHistory(contactId: string, limit = 20): Array<{ role: string; content: string }> {
+export function getHistory(contactId: string, limit = 20): Array<{ role: string; content: string; timestamp: number }> {
   return db.prepare(
-    'SELECT role, content FROM conversations WHERE contact_id = ? ORDER BY timestamp DESC LIMIT ?'
-  ).all(contactId, limit) as Array<{ role: string; content: string }>
+    'SELECT role, content, timestamp FROM conversations WHERE contact_id = ? ORDER BY timestamp DESC LIMIT ?'
+  ).all(contactId, limit) as Array<{ role: string; content: string; timestamp: number }>
 }
 
 export function getConversationsByDateRange(

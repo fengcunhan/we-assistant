@@ -59,10 +59,16 @@ export interface AgentResult {
   imageUrls?: string[];
 }
 
+function formatTimestamp(ts: number): string {
+  return new Date(ts)
+    .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" })
+    .slice(0, 16);
+}
+
 export async function runAgent(
   userMessage: string,
   userId: string,
-  history: Array<{ role: string; content: string }>,
+  history: Array<{ role: string; content: string; timestamp: number }>,
   sendMessage?: (text: string) => Promise<void>,
 ): Promise<AgentResult> {
   const registry = getSkills();
@@ -76,8 +82,14 @@ export async function runAgent(
     tool_call_id?: string;
   }> = [
     { role: "system", content: systemPrompt },
-    ...history.map((h) => ({ role: h.role, content: h.content })),
-    { role: "user", content: userMessage },
+    ...history.map((h) => ({
+      role: h.role,
+      content: `[${formatTimestamp(h.timestamp)}] ${h.content}`,
+    })),
+    {
+      role: "user",
+      content: `[${formatTimestamp(Date.now())}] ${userMessage}`,
+    },
   ];
 
   // Collect side effects across turns
