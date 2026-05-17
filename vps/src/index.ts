@@ -661,11 +661,26 @@ console.log(`📡 API server: http://0.0.0.0:${config.apiPort}`)
 await initSkills()
 
 // Scheduler: dispatch reminders via the job's own bot
-startScheduler(async (botId: string, userId: string, text: string) => {
+startScheduler(async (botId: string, userId: string, text: string, imageUrls?: string[]) => {
   const rt = bots.get(botId)
   if (!rt || !rt.running) throw new Error(`Bot ${botId} not running`)
-  await ilink.sendMessage(rt.creds, userId, '', text)
-  addMessage(botId, userId, 'assistant', `⏰ ${text}`)
+
+  const COS_URL_RE = /https:\/\/weixin-\d+\.cos\.[a-z-]+\.myqcloud\.com\/[^\s)\"'>]+/g
+  const signedText = text.replace(COS_URL_RE, (url) => getSignedUrl(url, 3600))
+  await ilink.sendMessage(rt.creds, userId, '', signedText)
+  addMessage(botId, userId, 'assistant', `⏰ ${signedText}`)
+
+  if (imageUrls?.length) {
+    for (const url of imageUrls) {
+      try {
+        await ilink.sendImage(rt.creds, userId, '', url)
+        console.log(`🖼️ ⏰ → ${userId}: sent image ${url.slice(-30)}`)
+      } catch (err) {
+        console.error('❌ 定时任务发图失败:', (err as Error).message)
+        await ilink.sendMessage(rt.creds, userId, '', `图片发送失败，你可以直接访问: ${url}`)
+      }
+    }
+  }
 })
 
 // Proactive: dispatch via the bot that owns the proactive config

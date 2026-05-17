@@ -139,17 +139,32 @@ interface ToolResult {
 | `every` | 固定间隔 (最小 1 分钟) | `3600000` (毫秒) |
 | `cron` | 每日定时 | `09:00` (HH:MM, Asia/Shanghai) |
 
+### 内容类型 (静态 vs 动态，创建时由 LLM 决定)
+
+`create_reminder` 有必填参数 `content_mode`，对应 `cron_jobs.job_type`:
+
+| content_mode | job_type | 触发时行为 |
+|--------------|----------|-----------|
+| `static` | `message` | 原样发送 `payload` 文本（如"提醒我开会"） |
+| `dynamic` | `agent_prompt` | 把 `payload`(指令) 交给完整 Agent 实时执行，发送新生成的内容 |
+
+- 静态/动态在**创建时**由 LLM 根据用户意图判断并写入，不是触发时才决定
+- 动态执行器在 `reminder.ts` 用 `registerJobExecutor('agent_prompt', …)` 注册，内部 `await import('../agent.js')` 懒加载 `runAgent`（避开 skill-loader↔agent 循环依赖），跑全工具 Agent，返回 `{ content, imageUrls }`
+- `daily-digest` 的 `daily_summary` 执行器是另一个内置 `job_type`，机制相同
+
 ### 工作原理
 
 - `scheduler.ts`: 每 30s 检查 `cron_jobs` 表中 `next_run_at <= now` 的任务
-- 到期任务通过 iLink `sendMessage` 发送 `payload` 到对应用户的微信
+- `executeJob`: 有对应 `job_type` 执行器则调它，否则直接用 `payload`；结果统一规整为 `{ content, imageUrls? }`
+- 到期任务通过 iLink 发送文本（COS URL 自动签名）+ 图片（`sendImage`，失败回退发链接）
 - 执行后自动计算下次运行时间；`at` 类型执行后自动 `enabled = 0`
 - 启动时立即 tick 一次以捕获服务重启期间错过的任务
 
 ### 用户交互 (通过 reminder skill)
 
-- "提醒我明天下午3点开会" → `create_reminder(at, 2026-04-02T15:00:00)`
-- "每天早上9点提醒我喝水" → `create_reminder(cron, 09:00)`
+- "提醒我明天下午3点开会" → `create_reminder(at, …, static)`
+- "每天早上9点提醒我喝水" → `create_reminder(cron, 09:00, static)`
+- "每天早上8点告诉我今天天气" → `create_reminder(cron, 08:00, dynamic, "查询天气并概括")`
 - "看看我的提醒" → `list_reminders`
 - "删除提醒 rem_xxx" → `delete_reminder`
 
