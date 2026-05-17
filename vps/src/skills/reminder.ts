@@ -87,7 +87,8 @@ function createReminder(args: Record<string, unknown>, userId: string): ToolResu
     const tempJob = {
       id, name, user_id: userId, schedule_kind: kind, schedule_value: value,
       schedule_tz: 'Asia/Shanghai', payload: message, enabled: 1,
-      next_run_at: null, last_run_at: null, last_status: null, created_at: 0, updated_at: 0,
+      next_run_at: null, last_run_at: null, last_status: null, job_type: 'message' as const,
+      created_at: 0, updated_at: 0,
     }
     nextRunAt = computeNextRunAt(tempJob, Date.now())
     if (!nextRunAt) {
@@ -98,7 +99,7 @@ function createReminder(args: Record<string, unknown>, userId: string): ToolResu
   createCronJob({
     id, name, user_id: userId, schedule_kind: kind, schedule_value: value,
     schedule_tz: 'Asia/Shanghai', payload: message, enabled: 1,
-    next_run_at: nextRunAt, last_run_at: null, last_status: null,
+    next_run_at: nextRunAt, last_run_at: null, last_status: null, job_type: 'message' as const,
   })
 
   const nextDate = new Date(nextRunAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
