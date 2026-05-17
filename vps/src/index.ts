@@ -80,6 +80,23 @@ function registerAndStartBot(creds: Credentials): BotRuntime {
     base_url: creds.baseURL,
     ilink_user_id: creds.ilinkUserId,
   })
+
+  // Idempotent: a single canonical runtime + poll loop per botId. The QR
+  // status endpoint is polled repeatedly and keeps returning "confirmed",
+  // so this can be called many times for the same bot — never spin up a
+  // second poll loop (that caused duplicate replies).
+  const existing = bots.get(creds.ilinkBotId)
+  if (existing) {
+    existing.creds = {
+      botToken: creds.botToken,
+      ilinkBotId: creds.ilinkBotId,
+      baseURL: creds.baseURL,
+      ilinkUserId: creds.ilinkUserId,
+    }
+    if (!existing.running) pollBot(existing)
+    return existing
+  }
+
   const row = getBot(creds.ilinkBotId)!
   const rt = runtimeFromRow(row)
   bots.set(rt.botId, rt)
@@ -245,7 +262,13 @@ async function autoIndex(botId: string, text: string, userId: string): Promise<v
 
 async function pollBot(rt: BotRuntime): Promise<void> {
   if (rt.running) return
+  // Defense-in-depth: at most one poll loop per botId. If another runtime
+  // for this bot is already the canonical, running one, do not start a
+  // second loop (duplicate loops caused duplicate replies).
+  const canonical = bots.get(rt.botId)
+  if (canonical && canonical !== rt && canonical.running) return
   rt.running = true
+  bots.set(rt.botId, rt)
   console.log(`🚀 [${rt.botId}] 开始轮询 iLink...`)
 
   try {
