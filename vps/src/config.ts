@@ -27,6 +27,15 @@ export const config = {
     maxOutputChars: parseInt(process.env.SHELL_MAX_OUTPUT ?? '4000', 10),
     cwd: process.env.SHELL_CWD ?? process.cwd(),
   },
+  wechatCli: {
+    enabled: process.env.WECHAT_CLI_ENABLED !== 'false',
+    // macOS-only 工具：systemd PATH 通常不含 homebrew，需可覆盖 + 绝对路径兜底
+    binPath: process.env.WECHAT_CLI_BIN ?? 'wechat-cli',
+    // send 是写操作（真实发微信），可用此开关熔断；默认开启（按需求"发消息也自动"）
+    sendEnabled: process.env.WECHAT_CLI_SEND_ENABLED !== 'false',
+    timeoutMs: parseInt(process.env.WECHAT_CLI_TIMEOUT_MS ?? '30000', 10),
+    maxOutputChars: parseInt(process.env.WECHAT_CLI_MAX_OUTPUT ?? '8000', 10),
+  },
   proactive: {
     enabled: process.env.PROACTIVE_ENABLED !== 'false',
     userId: process.env.PROACTIVE_USER_ID ?? '',
