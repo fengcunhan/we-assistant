@@ -30,8 +30,8 @@ function vec(): number[] {
 }
 
 test('bots: upsert + list + getEnabled', () => {
-  db.upsertBot({ bot_id: BOT_A, bot_token: 'tA', base_url: 'u', ilink_user_id: 'uA' })
-  db.upsertBot({ bot_id: BOT_B, bot_token: 'tB', base_url: 'u', ilink_user_id: 'uB' })
+  db.upsertBot({ ilink_user_id: BOT_A, ilink_bot_id: 'sess_A', bot_token: 'tA', base_url: 'u' })
+  db.upsertBot({ ilink_user_id: BOT_B, ilink_bot_id: 'sess_B', bot_token: 'tB', base_url: 'u' })
   const all = db.getBots()
   assert.equal(all.length, 2)
   assert.ok(db.getBot(BOT_A))
@@ -39,6 +39,27 @@ test('bots: upsert + list + getEnabled', () => {
   db.setBotEnabled(BOT_B, false)
   assert.equal(db.getEnabledBots().length, 1)
   db.setBotEnabled(BOT_B, true)
+})
+
+test('re-scan (same account, new ephemeral id) reuses the row, keeps history', () => {
+  const RESCAN_CONTACT = 'rescan_contact@im.wechat'
+  db.addMessage(BOT_A, RESCAN_CONTACT, 'user', 'before re-scan')
+  const canonical = db.upsertBot({
+    ilink_user_id: BOT_A,
+    ilink_bot_id: 'sess_A_v2',
+    bot_token: 'tA2',
+    base_url: 'u',
+  })
+  assert.equal(canonical, BOT_A, 'canonical id stays = ilink_user_id')
+  assert.equal(db.getBots().length, 2, 're-scan must not create a new bot row')
+  const row = db.getBot(BOT_A)!
+  assert.equal(row.ilink_bot_id, 'sess_A_v2', 'ephemeral session id refreshed')
+  assert.equal(row.bot_token, 'tA2', 'token refreshed')
+  assert.deepEqual(
+    db.getHistory(BOT_A, RESCAN_CONTACT).map((m) => m.content),
+    ['before re-scan'],
+    'prior history still reachable after re-scan',
+  )
 })
 
 test('vectors are isolated per bot', () => {

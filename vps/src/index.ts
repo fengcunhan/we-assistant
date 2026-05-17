@@ -37,10 +37,10 @@ const bots = new Map<string, BotRuntime>()
 
 function runtimeFromRow(row: BotRow): BotRuntime {
   return {
-    botId: row.bot_id,
+    botId: row.bot_id, // canonical (= ilink_user_id): storage/runtime key, stable across re-scans
     creds: {
       botToken: row.bot_token,
-      ilinkBotId: row.bot_id,
+      ilinkBotId: row.ilink_bot_id || row.bot_id, // ephemeral session id: iLink protocol from_user_id
       baseURL: row.base_url,
       ilinkUserId: row.ilink_user_id,
     },
@@ -74,18 +74,22 @@ async function loginNewBot(): Promise<void> {
 }
 
 function registerAndStartBot(creds: Credentials): BotRuntime {
-  upsertBot({
-    bot_id: creds.ilinkBotId,
+  // Canonical id is the stable account key (ilink_user_id). Re-scanning the
+  // same WeChat account resolves to the SAME canonical id, so the existing
+  // bot row + runtime are reused and prior history stays attached — only the
+  // ephemeral session creds (token + ilink_bot_id) are refreshed.
+  const canonical = upsertBot({
+    ilink_user_id: creds.ilinkUserId,
+    ilink_bot_id: creds.ilinkBotId,
     bot_token: creds.botToken,
     base_url: creds.baseURL,
-    ilink_user_id: creds.ilinkUserId,
   })
 
-  // Idempotent: a single canonical runtime + poll loop per botId. The QR
+  // Idempotent: a single canonical runtime + poll loop per account. The QR
   // status endpoint is polled repeatedly and keeps returning "confirmed",
   // so this can be called many times for the same bot — never spin up a
   // second poll loop (that caused duplicate replies).
-  const existing = bots.get(creds.ilinkBotId)
+  const existing = bots.get(canonical)
   if (existing) {
     existing.creds = {
       botToken: creds.botToken,
@@ -97,7 +101,7 @@ function registerAndStartBot(creds: Credentials): BotRuntime {
     return existing
   }
 
-  const row = getBot(creds.ilinkBotId)!
+  const row = getBot(canonical)!
   const rt = runtimeFromRow(row)
   bots.set(rt.botId, rt)
   pollBot(rt)
@@ -489,8 +493,8 @@ const server = createServer(async (req, res) => {
       const qr = qrStatusMatch[1]
       const result = await ilink.pollQrStatus(config.ilink.baseURL, qr)
       if (result) {
-        registerAndStartBot(result)
-        return json(res, { status: 'confirmed', botId: result.ilinkBotId })
+        const rt = registerAndStartBot(result)
+        return json(res, { status: 'confirmed', botId: rt.botId })
       }
       return json(res, { status: 'waiting' })
     }

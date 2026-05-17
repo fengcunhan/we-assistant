@@ -12,7 +12,8 @@ const DATA_DIR = mkdtempSync(join(tmpdir(), 'pi-db-mig-'))
 process.env.DATA_DIR = DATA_DIR
 process.env.MEDIA_DIR = join(DATA_DIR, 'media')
 
-const FIRST_BOT = 'legacybot@im.wechat'
+const FIRST_BOT = 'legacybot@im.wechat' // legacy ephemeral ilink_bot_id
+const CANON = 'uid' // canonical bot_id after account-keyed migration = ilink_user_id
 const dbFile = join(DATA_DIR, 'pi.db')
 
 {
@@ -81,46 +82,49 @@ before(async () => {
   raw = db.default
 })
 
-test('migration seeds the first bot row from legacy ilink_creds', () => {
+test('migration collapses legacy creds to a canonical (ilink_user_id) bot row', () => {
   const all = db.getBots()
   assert.equal(all.length, 1)
-  assert.equal(all[0].bot_id, FIRST_BOT)
+  assert.equal(all[0].bot_id, CANON, 'bot_id := ilink_user_id')
+  assert.equal(all[0].ilink_bot_id, FIRST_BOT, 'ephemeral session id demoted to ilink_bot_id')
   assert.equal(all[0].cursor, 'CURSOR_123')
   assert.equal(all[0].bot_token, 'tok')
 })
 
-test('migration backfills all legacy rows to the first bot', () => {
+test('migration backfills + repoints all legacy rows onto the canonical id', () => {
   for (const table of ['conversations', 'message_log', 'vectors', 'cron_jobs']) {
-    const empties = raw.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE bot_id = ''`).get() as {
+    const stray = raw
+      .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE bot_id = '' OR bot_id = ?`)
+      .get(FIRST_BOT) as { c: number }
+    assert.equal(stray.c, 0, `${table} still has empty/ephemeral bot_id rows`)
+    const mine = raw.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE bot_id = ?`).get(CANON) as {
       c: number
     }
-    assert.equal(empties.c, 0, `${table} still has rows with empty bot_id`)
-    const mine = raw.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE bot_id = ?`).get(FIRST_BOT) as {
-      c: number
-    }
-    assert.ok(mine.c >= 1, `${table} should have backfilled rows for ${FIRST_BOT}`)
+    assert.ok(mine.c >= 1, `${table} should have rows under ${CANON}`)
   }
 })
 
-test('backfilled data is reachable through bot-scoped accessors', () => {
-  assert.equal(db.getHistory(FIRST_BOT, 'c1').length, 1)
-  assert.equal((db.getNotes(FIRST_BOT, '', '') as unknown[]).length, 1)
+test('migrated data is reachable through bot-scoped accessors', () => {
+  assert.equal(db.getHistory(CANON, 'c1').length, 1)
+  assert.equal((db.getNotes(CANON, '', '') as unknown[]).length, 1)
   assert.deepEqual(
-    db.getCronJobs(FIRST_BOT).map((j) => j.id),
+    db.getCronJobs(CANON).map((j) => j.id),
     ['job1'],
   )
 })
 
-test('migration end-state is idempotent (no empty bot_id, single bot row)', () => {
-  assert.equal(db.getBots().length, 1)
-  const anyEmpty = raw
+test('migration end-state is idempotent (single canonical row, no stray bot_id)', () => {
+  const all = db.getBots()
+  assert.equal(all.length, 1)
+  assert.equal(all[0].bot_id, CANON)
+  const stray = raw
     .prepare(
       `SELECT
-         (SELECT COUNT(*) FROM conversations WHERE bot_id='') +
-         (SELECT COUNT(*) FROM message_log WHERE bot_id='') +
-         (SELECT COUNT(*) FROM vectors WHERE bot_id='') +
-         (SELECT COUNT(*) FROM cron_jobs WHERE bot_id='') AS c`,
+         (SELECT COUNT(*) FROM conversations WHERE bot_id='' OR bot_id=$e) +
+         (SELECT COUNT(*) FROM message_log  WHERE bot_id='' OR bot_id=$e) +
+         (SELECT COUNT(*) FROM vectors      WHERE bot_id='' OR bot_id=$e) +
+         (SELECT COUNT(*) FROM cron_jobs    WHERE bot_id='' OR bot_id=$e) AS c`,
     )
-    .get() as { c: number }
-  assert.equal(anyEmpty.c, 0)
+    .get({ e: FIRST_BOT }) as { c: number }
+  assert.equal(stray.c, 0)
 })

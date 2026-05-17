@@ -14,6 +14,7 @@ db.exec(`
     bot_token TEXT NOT NULL,
     base_url TEXT NOT NULL,
     ilink_user_id TEXT NOT NULL DEFAULT '',
+    ilink_bot_id TEXT NOT NULL DEFAULT '',
     cursor TEXT NOT NULL DEFAULT '',
     nickname TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -121,6 +122,78 @@ function migrate(): void {
 
 migrate()
 
+// --- Account-keyed migration: collapse ephemeral per-login bot_ids ---
+//
+// iLink mints a NEW ilink_bot_id on every QR re-login of the SAME WeChat
+// account, so re-scanning used to create a brand-new bot row and orphan all
+// prior history. The stable identity is ilink_user_id. This migration makes
+// bot_id := ilink_user_id (canonical) and demotes the ephemeral session id to
+// the new ilink_bot_id column (used only as the iLink protocol from_user_id).
+// Idempotent: once collapsed there are no ephemeral ids left to repoint.
+
+function migrateAccountKeyed(): void {
+  if (!columnExists('bots', 'ilink_bot_id')) {
+    db.exec(`ALTER TABLE bots ADD COLUMN ilink_bot_id TEXT NOT NULL DEFAULT ''`)
+  }
+
+  const BOT_ID_TABLES = ['conversations', 'message_log', 'vectors', 'cron_jobs']
+  const accounts = db
+    .prepare(`SELECT DISTINCT ilink_user_id AS acct FROM bots WHERE ilink_user_id != ''`)
+    .all() as Array<{ acct: string }>
+
+  const collapse = db.transaction(() => {
+    for (const { acct } of accounts) {
+      // enabled-first then most-recent = the current/live login for this account
+      const rows = db
+        .prepare(
+          'SELECT * FROM bots WHERE ilink_user_id = ? ORDER BY enabled DESC, updated_at DESC, created_at DESC',
+        )
+        .all(acct) as BotRow[]
+      if (rows.length === 0) continue
+
+      const canonical = acct
+      const live = rows[0]
+      const sessionId = live.bot_id === canonical ? live.ilink_bot_id || canonical : live.bot_id
+      const ephemeralIds = rows.map((r) => r.bot_id).filter((id) => id !== canonical)
+
+      if (ephemeralIds.length > 0) {
+        const ph = ephemeralIds.map(() => '?').join(',')
+        for (const t of BOT_ID_TABLES) {
+          db.prepare(`UPDATE ${t} SET bot_id = ? WHERE bot_id IN (${ph})`).run(canonical, ...ephemeralIds)
+        }
+      }
+
+      db.prepare('DELETE FROM bots WHERE ilink_user_id = ?').run(acct)
+      db.prepare(
+        `INSERT OR REPLACE INTO bots
+           (bot_id, bot_token, base_url, ilink_user_id, ilink_bot_id, cursor, nickname,
+            enabled, proactive_enabled, proactive_user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        canonical,
+        live.bot_token,
+        live.base_url,
+        acct,
+        sessionId,
+        live.cursor,
+        live.nickname && live.nickname !== live.bot_id ? live.nickname : canonical,
+        live.enabled,
+        live.proactive_enabled,
+        live.proactive_user_id,
+        live.created_at,
+        Date.now(),
+      )
+
+      if (ephemeralIds.length > 0) {
+        console.log(`🔗 账号归并: ${canonical} ← [${ephemeralIds.join(', ')}] (会话 ${sessionId})`)
+      }
+    }
+  })
+  collapse()
+}
+
+migrateAccountKeyed()
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conv_bot ON conversations (bot_id, contact_id, timestamp DESC);
   CREATE INDEX IF NOT EXISTS idx_log_bot ON message_log (bot_id, timestamp DESC);
@@ -146,6 +219,7 @@ export interface BotRow {
   bot_token: string
   base_url: string
   ilink_user_id: string
+  ilink_bot_id: string
   cursor: string
   nickname: string | null
   enabled: number
@@ -167,26 +241,54 @@ export function getBot(botId: string): BotRow | null {
   return (db.prepare('SELECT * FROM bots WHERE bot_id = ?').get(botId) as BotRow | undefined) ?? null
 }
 
+// Account-keyed upsert. Canonical bot_id := ilink_user_id (stable across QR
+// re-logins); the per-login ephemeral id lands in ilink_bot_id. Re-scanning
+// the same WeChat account updates the existing row in place (refreshing token
+// + session id) so all prior history stays reachable. Returns the canonical
+// bot_id callers must use as the storage/runtime key.
 export function upsertBot(bot: {
-  bot_id: string
+  ilink_user_id: string
+  ilink_bot_id: string
   bot_token: string
   base_url: string
-  ilink_user_id: string
   cursor?: string
   nickname?: string
-}): void {
+}): string {
+  const canonical = bot.ilink_user_id || bot.ilink_bot_id
+  if (!canonical) throw new Error('upsertBot: ilink_user_id and ilink_bot_id are both empty')
+
   const now = Date.now()
-  const existing = getBot(bot.bot_id)
+  const existing = getBot(canonical)
   if (existing) {
     db.prepare(
-      'UPDATE bots SET bot_token = ?, base_url = ?, ilink_user_id = ?, nickname = ?, enabled = 1, updated_at = ? WHERE bot_id = ?',
-    ).run(bot.bot_token, bot.base_url, bot.ilink_user_id, bot.nickname ?? existing.nickname ?? bot.bot_id, now, bot.bot_id)
+      `UPDATE bots SET bot_token = ?, base_url = ?, ilink_user_id = ?, ilink_bot_id = ?,
+         nickname = ?, enabled = 1, updated_at = ? WHERE bot_id = ?`,
+    ).run(
+      bot.bot_token,
+      bot.base_url,
+      bot.ilink_user_id,
+      bot.ilink_bot_id,
+      bot.nickname ?? existing.nickname ?? canonical,
+      now,
+      canonical,
+    )
   } else {
     db.prepare(
-      `INSERT INTO bots (bot_id, bot_token, base_url, ilink_user_id, cursor, nickname, enabled, proactive_enabled, proactive_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, 0, '', ?, ?)`,
-    ).run(bot.bot_id, bot.bot_token, bot.base_url, bot.ilink_user_id, bot.cursor ?? '', bot.nickname ?? bot.bot_id, now, now)
+      `INSERT INTO bots (bot_id, bot_token, base_url, ilink_user_id, ilink_bot_id, cursor, nickname, enabled, proactive_enabled, proactive_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, '', ?, ?)`,
+    ).run(
+      canonical,
+      bot.bot_token,
+      bot.base_url,
+      bot.ilink_user_id,
+      bot.ilink_bot_id,
+      bot.cursor ?? '',
+      bot.nickname ?? canonical,
+      now,
+      now,
+    )
   }
+  return canonical
 }
 
 export function updateBotCursor(botId: string, cursor: string): void {
