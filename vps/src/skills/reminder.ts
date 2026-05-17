@@ -56,10 +56,10 @@ const skill: Skill = {
 
   async execute(toolName, args, context): Promise<ToolResult> {
     if (toolName === 'create_reminder') {
-      return createReminder(args, context.userId)
+      return createReminder(args, context.botId, context.userId)
     }
     if (toolName === 'list_reminders') {
-      return listReminders(context.userId)
+      return listReminders(context.botId, context.userId)
     }
     if (toolName === 'delete_reminder') {
       return deleteReminder(args.reminder_id as string)
@@ -68,7 +68,7 @@ const skill: Skill = {
   },
 }
 
-function createReminder(args: Record<string, unknown>, userId: string): ToolResult {
+function createReminder(args: Record<string, unknown>, botId: string, userId: string): ToolResult {
   const id = `rem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
   const kind = args.schedule_kind as 'at' | 'every' | 'cron'
   const value = args.schedule_value as string
@@ -85,7 +85,7 @@ function createReminder(args: Record<string, unknown>, userId: string): ToolResu
     nextRunAt = ms
   } else {
     const tempJob = {
-      id, name, user_id: userId, schedule_kind: kind, schedule_value: value,
+      id, bot_id: botId, name, user_id: userId, schedule_kind: kind, schedule_value: value,
       schedule_tz: 'Asia/Shanghai', payload: message, enabled: 1,
       next_run_at: null, last_run_at: null, last_status: null, job_type: 'message' as const,
       created_at: 0, updated_at: 0,
@@ -97,7 +97,7 @@ function createReminder(args: Record<string, unknown>, userId: string): ToolResu
   }
 
   createCronJob({
-    id, name, user_id: userId, schedule_kind: kind, schedule_value: value,
+    id, bot_id: botId, name, user_id: userId, schedule_kind: kind, schedule_value: value,
     schedule_tz: 'Asia/Shanghai', payload: message, enabled: 1,
     next_run_at: nextRunAt, last_run_at: null, last_status: null, job_type: 'message' as const,
   })
@@ -109,8 +109,8 @@ function createReminder(args: Record<string, unknown>, userId: string): ToolResu
   }
 }
 
-function listReminders(userId: string): ToolResult {
-  const jobs = getCronJobs(userId)
+function listReminders(botId: string, userId: string): ToolResult {
+  const jobs = getCronJobs(botId, userId)
   if (jobs.length === 0) {
     return { content: '你目前没有任何提醒。' }
   }

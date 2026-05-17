@@ -67,13 +67,14 @@ function formatTimestamp(ts: number): string {
 
 export async function runAgent(
   userMessage: string,
+  botId: string,
   userId: string,
   history: Array<{ role: string; content: string; timestamp: number }>,
   sendMessage?: (text: string) => Promise<void>,
 ): Promise<AgentResult> {
   const registry = getSkills();
   const systemPrompt = buildSystemPrompt(registry.skills);
-  const context: SkillContext = { userId, userMessage, sendMessage };
+  const context: SkillContext = { botId, userId, userMessage, sendMessage };
 
   // Build message array: system + history + current user message
   const messages: Array<{

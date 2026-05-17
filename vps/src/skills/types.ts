@@ -34,8 +34,12 @@ export interface Skill {
 
 /** Context passed to skill handlers */
 export interface SkillContext {
+  /** The bot (iLink login) that received this message — data isolation key */
+  botId: string
   userId: string
   userMessage: string
+  /** Optional: image URLs attached to the inbound message (for image-to-image search) */
+  imageUrls?: string[]
   /** Send an intermediate message to the user (before tool result is ready) */
   sendMessage?: (text: string) => Promise<void>
 }

@@ -37,14 +37,14 @@ const skill: Skill = {
       const signedUrl = getSignedUrl(imageUrl, 600)
       console.log(`🔍 以图搜图: ${imageUrl.slice(-40)}`)
       const embedding = await getMultimodalEmbedding([{ image: signedUrl }])
-      results = queryVectors(embedding, 10, 'image_visual')
+      results = queryVectors(context.botId, embedding, 10, 'image_visual')
       console.log(`🔍 视觉搜索 → ${results.length} 条结果:`, results.map((r) => ({ id: r.id, score: r.score.toFixed(4), content: r.content.slice(0, 30) })))
 
       // Exclude the source image itself (same mediaUrl)
       results = results.filter((r) => r.mediaUrl !== imageUrl)
     } else {
       const embedding = await getEmbedding(query)
-      results = queryVectors(embedding, 10, 'image')
+      results = queryVectors(context.botId, embedding, 10, 'image')
       console.log(`🔍 图片搜索 "${query}" → ${results.length} 条结果:`, results.map((r) => ({ id: r.id, score: r.score.toFixed(4), content: r.content.slice(0, 30) })))
     }
 

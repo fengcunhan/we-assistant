@@ -3,26 +3,33 @@
  * Usage: node --import tsx src/reindex-images.ts
  */
 import { getEmbedding, getMultimodalEmbedding } from './embedding.js'
-import { insertVector } from './db.js'
+import { insertVector, getBots } from './db.js'
 import { getSignedUrl } from './cos.js'
 import { config } from './config.js'
 import Database from 'better-sqlite3'
 import { join } from 'path'
 
+const botId = process.argv[2] || getBots()[0]?.bot_id
+if (!botId) {
+  console.error('No bot found. Usage: node --import tsx src/reindex-images.ts [botId]')
+  process.exit(1)
+}
+console.log(`Reindexing images for bot: ${botId}\n`)
+
 const db = new Database(join(config.dataDir, 'pi.db'))
 
-// All images from message_log
+// All images from this bot's message_log
 const images = db.prepare(
   `SELECT DISTINCT media_path, contact_id FROM message_log
-   WHERE media_path LIKE '%.jpg' OR media_path LIKE '%.jpeg'
-      OR media_path LIKE '%.png' OR media_path LIKE '%.gif' OR media_path LIKE '%.webp'
+   WHERE bot_id = ? AND (media_path LIKE '%.jpg' OR media_path LIKE '%.jpeg'
+      OR media_path LIKE '%.png' OR media_path LIKE '%.gif' OR media_path LIKE '%.webp')
    ORDER BY timestamp ASC`
-).all() as Array<{ media_path: string; contact_id: string }>
+).all(botId) as Array<{ media_path: string; contact_id: string }>
 
 console.log(`Found ${images.length} images to process\n`)
 
-// Remove old image vectors (will be replaced)
-db.prepare(`DELETE FROM vectors WHERE category IN ('image', 'image_visual')`).run()
+// Remove this bot's old image vectors (will be replaced)
+db.prepare(`DELETE FROM vectors WHERE bot_id = ? AND category IN ('image', 'image_visual')`).run(botId)
 console.log('Cleared old image vectors\n')
 
 for (const [i, img] of images.entries()) {
@@ -59,13 +66,13 @@ for (const [i, img] of images.entries()) {
     // 2. Text embedding
     const textEmb = await getEmbedding(caption)
     const textId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    insertVector(textId, textEmb, caption, 'image', contactId, 'store', url)
+    insertVector(botId, textId, textEmb, caption, 'image', contactId, 'store', url)
     console.log(`  ✅ text embedding: ${textId}`)
 
     // 3. Visual embedding
     const imgEmb = await getMultimodalEmbedding([{ image: signedUrl }])
     const imgId = `imgv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    insertVector(imgId, imgEmb, caption, 'image_visual', contactId, 'store', url)
+    insertVector(botId, imgId, imgEmb, caption, 'image_visual', contactId, 'store', url)
     console.log(`  ✅ visual embedding: ${imgId}`)
 
     // Small delay to avoid rate limiting

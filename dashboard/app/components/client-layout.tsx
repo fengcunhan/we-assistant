@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "./auth-provider";
+import { BotProvider } from "./bot-provider";
 import { Sidebar } from "./sidebar";
 
 function LayoutInner({ children }: { children: React.ReactNode }) {
@@ -35,7 +36,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <LayoutInner>{children}</LayoutInner>
+      <BotProvider>
+        <LayoutInner>{children}</LayoutInner>
+      </BotProvider>
     </AuthProvider>
   );
 }

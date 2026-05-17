@@ -91,7 +91,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
-      const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+      // Auto-scope data requests to the currently selected bot. Management
+      // endpoints (auth, qrcode, bindings) are bot-agnostic and excluded.
+      let scopedPath = path;
+      const isManagement =
+        path.startsWith("/api/auth/") ||
+        path.startsWith("/api/wechat/qrcode") ||
+        path.startsWith("/api/wechat/bindings");
+      if (path.startsWith("/api/") && !isManagement) {
+        const botId =
+          typeof window !== "undefined" ? localStorage.getItem("pi_bot") : null;
+        if (botId) {
+          scopedPath += (path.includes("?") ? "&" : "?") + "botId=" + encodeURIComponent(botId);
+        }
+      }
+      const res = await fetch(`${API_BASE}${scopedPath}`, { ...init, headers });
       if (res.status === 401) {
         logout();
       }

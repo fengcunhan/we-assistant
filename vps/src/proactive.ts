@@ -1,13 +1,17 @@
 import { chat } from "./llm.js";
 import { config } from "./config.js";
-import { getHistory } from "./db.js";
+import { getHistory, getEnabledBots } from "./db.js";
 
-type SendFn = (userId: string, text: string) => Promise<void>;
+type SendFn = (botId: string, userId: string, text: string) => Promise<void>;
 
-// In-memory state (resets on restart, acceptable)
-let dailyCount = 0;
-let lastSentAt = 0;
-let lastResetDate = "";
+interface BotProactiveState {
+  dailyCount: number;
+  lastSentAt: number;
+  lastResetDate: string;
+}
+
+// Per-bot throttle state (resets on restart, acceptable)
+const stateByBot = new Map<string, BotProactiveState>();
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const TOPIC_SEEDS = [
@@ -48,21 +52,31 @@ function shanghaiDate(now: Date): string {
   return now.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
 }
 
-function shouldSend(now: Date): boolean {
+function getState(botId: string): BotProactiveState {
+  let s = stateByBot.get(botId);
+  if (!s) {
+    s = { dailyCount: 0, lastSentAt: 0, lastResetDate: "" };
+    stateByBot.set(botId, s);
+  }
+  return s;
+}
+
+function shouldSend(botId: string, now: Date): boolean {
+  const s = getState(botId);
+
   // Reset daily count at midnight Shanghai time
   const today = shanghaiDate(now);
-  if (today !== lastResetDate) {
-    dailyCount = 0;
-    lastResetDate = today;
+  if (today !== s.lastResetDate) {
+    s.dailyCount = 0;
+    s.lastResetDate = today;
   }
 
   const hour = shanghaiHour(now);
   if (hour < config.proactive.minHour || hour >= config.proactive.maxHour)
     return false;
-  if (dailyCount >= config.proactive.dailyMax) return false;
-  if (now.getTime() - lastSentAt < config.proactive.minGapMs) return false;
+  if (s.dailyCount >= config.proactive.dailyMax) return false;
+  if (now.getTime() - s.lastSentAt < config.proactive.minGapMs) return false;
 
-  // Probability dice: dailyMax / (daytime ticks)
   const ticksPerDay =
     (config.proactive.maxHour - config.proactive.minHour) *
     (3600000 / config.proactive.tickMs);
@@ -99,8 +113,8 @@ ${topicSeed}
 根据时间、最近聊天内容和灵感方向，发一条自然的消息。直接输出消息内容，不要加引号或解释。`;
 }
 
-async function generateMessage(userId: string): Promise<string> {
-  const history = getHistory(userId).reverse().slice(-10);
+async function generateMessage(botId: string, userId: string): Promise<string> {
+  const history = getHistory(botId, userId).reverse().slice(-10);
   const now = new Date();
   const timeStr = now.toLocaleString("zh-CN", {
     timeZone: "Asia/Shanghai",
@@ -109,7 +123,6 @@ async function generateMessage(userId: string): Promise<string> {
   });
   const seed = TOPIC_SEEDS[Math.floor(Math.random() * TOPIC_SEEDS.length)];
 
-  // Build a readable history snippet for the system prompt
   const historySnippet = history
     .map(
       (h) => `${h.role === "user" ? "用户" : "Pi"}: ${h.content.slice(0, 120)}`,
@@ -128,42 +141,48 @@ async function generateMessage(userId: string): Promise<string> {
 }
 
 async function tick(sendFn: SendFn): Promise<void> {
-  const { proactive } = config;
-  if (!proactive.enabled || !proactive.userId) return;
+  if (!config.proactive.enabled) return;
 
   const now = new Date();
-  if (!shouldSend(now)) return;
 
-  try {
-    const text = await generateMessage(proactive.userId);
-    if (!text.trim()) return;
+  for (const bot of getEnabledBots()) {
+    if (bot.proactive_enabled !== 1 || !bot.proactive_user_id) continue;
+    if (!shouldSend(bot.bot_id, now)) continue;
 
-    await sendFn(proactive.userId, text);
-    dailyCount++;
-    lastSentAt = now.getTime();
-    console.log(
-      `💬 主动聊天 (${dailyCount}/${proactive.dailyMax}) → ${proactive.userId}: ${text.slice(0, 80)}`,
-    );
-  } catch (err) {
-    console.error("❌ 主动聊天失败:", (err as Error).message);
+    try {
+      const text = await generateMessage(bot.bot_id, bot.proactive_user_id);
+      if (!text.trim()) continue;
+
+      await sendFn(bot.bot_id, bot.proactive_user_id, text);
+      const s = getState(bot.bot_id);
+      s.dailyCount++;
+      s.lastSentAt = now.getTime();
+      console.log(
+        `💬 主动聊天 [${bot.bot_id}] (${s.dailyCount}/${config.proactive.dailyMax}) → ${bot.proactive_user_id}: ${text.slice(0, 80)}`,
+      );
+    } catch (err) {
+      console.error(
+        `❌ 主动聊天失败 [${bot.bot_id}]:`,
+        (err as Error).message,
+      );
+    }
   }
 }
 
 export function startProactive(sendFn: SendFn): void {
-  const { proactive } = config;
-  if (!proactive.enabled) {
-    console.log("💤 主动聊天已禁用");
-    return;
-  }
-  if (!proactive.userId) {
-    console.log("⚠️ 主动聊天未配置 PROACTIVE_USER_ID，跳过");
+  if (!config.proactive.enabled) {
+    console.log("💤 主动聊天已全局禁用 (PROACTIVE_ENABLED=false)");
     return;
   }
 
   console.log(
-    `💬 主动聊天已启动 (${proactive.minHour}:00-${proactive.maxHour}:00, 最多 ${proactive.dailyMax} 次/天, 间隔 ${proactive.tickMs / 1000}s)`,
+    `💬 主动聊天已启动 (按 bot 配置, ${config.proactive.minHour}:00-${config.proactive.maxHour}:00, 最多 ${config.proactive.dailyMax} 次/天/bot, tick ${config.proactive.tickMs / 1000}s)`,
   );
-  timer = setInterval(() => tick(sendFn), proactive.tickMs);
+  timer = setInterval(() => {
+    tick(sendFn).catch((err) =>
+      console.error("❌ proactive tick error:", (err as Error).message),
+    );
+  }, config.proactive.tickMs);
 }
 
 export function stopProactive(): void {

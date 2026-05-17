@@ -33,7 +33,7 @@ const skill: Skill = {
 
     const embedding = await getEmbedding(content)
     const id = `note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    insertVector(id, embedding, content, category, context.userId, 'store')
+    insertVector(context.botId, id, embedding, content, category, context.userId, 'store')
 
     return {
       content: `已成功存入知识库。内容: "${content.slice(0, 80)}${content.length > 80 ? '...' : ''}"，分类: ${category}`,

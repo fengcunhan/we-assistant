@@ -2,7 +2,7 @@ import { getEnabledDueJobs, updateCronJobAfterRun, type CronJob } from './db.js'
 
 const CHECK_INTERVAL_MS = 30_000 // check every 30s
 
-type SendFn = (userId: string, text: string) => Promise<void>
+type SendFn = (botId: string, userId: string, text: string) => Promise<void>
 
 type JobExecutor = (job: CronJob) => Promise<string>
 
@@ -87,7 +87,7 @@ async function executeJob(job: CronJob): Promise<void> {
   try {
     const executor = jobExecutors.get(job.job_type ?? '')
     const payload = executor ? await executor(job) : job.payload
-    await sendFn(job.user_id, payload)
+    await sendFn(job.bot_id, job.user_id, payload)
     const nextRunAt = computeNextRunAt(job, Date.now())
     updateCronJobAfterRun(job.id, 'ok', nextRunAt)
 

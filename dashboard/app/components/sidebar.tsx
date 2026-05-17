@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "./auth-provider";
+import { useBots } from "./bot-provider";
 
 const navItems = [
   {
@@ -63,6 +64,7 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { logout, authFetch } = useAuth();
+  const { bots, selectedBotId, selectBot } = useBots();
   const [vectorCount, setVectorCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -91,6 +93,41 @@ export function Sidebar() {
           </div>
         </div>
       </div>
+
+      {bots.length > 0 && (
+        <div className="px-4 pt-4">
+          <label className="text-xs text-pi-ink-muted uppercase tracking-wider px-1">
+            Active Bot
+          </label>
+          <div className="mt-1.5 relative">
+            <select
+              value={selectedBotId ?? ""}
+              onChange={(e) => selectBot(e.target.value)}
+              className="w-full appearance-none bg-pi-cream/80 border border-pi-border rounded-lg pl-3 pr-8 py-2 text-sm text-pi-ink focus:outline-none focus:ring-2 focus:ring-pi-gold/30"
+            >
+              {bots.map((b) => (
+                <option key={b.botId} value={b.botId}>
+                  {b.running ? "● " : "○ "}
+                  {b.nickname}
+                </option>
+              ))}
+            </select>
+            <svg
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-pi-ink-muted pointer-events-none"
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </div>
+        </div>
+      )}
 
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {

@@ -23,12 +23,12 @@ const skill: Skill = {
     },
   ],
 
-  async execute(_toolName, args): Promise<ToolResult> {
+  async execute(_toolName, args, context): Promise<ToolResult> {
     const query = args.query as string
     const topK = (args.top_k as number) ?? 3
 
     const embedding = await getEmbedding(query)
-    const results = queryVectors(embedding, topK)
+    const results = queryVectors(context.botId, embedding, topK)
 
     if (results.length === 0) {
       return { content: '知识库中没有找到相关内容。' }
