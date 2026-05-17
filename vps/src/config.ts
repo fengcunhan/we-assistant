@@ -21,6 +21,12 @@ export const config = {
     secretId: process.env.COS_SECRET_ID ?? '',
     secretKey: process.env.COS_SECRET_KEY ?? '',
   },
+  shell: {
+    enabled: process.env.SHELL_SKILL_ENABLED !== 'false',
+    timeoutMs: parseInt(process.env.SHELL_TIMEOUT_MS ?? '30000', 10),
+    maxOutputChars: parseInt(process.env.SHELL_MAX_OUTPUT ?? '4000', 10),
+    cwd: process.env.SHELL_CWD ?? process.cwd(),
+  },
   proactive: {
     enabled: process.env.PROACTIVE_ENABLED !== 'false',
     userId: process.env.PROACTIVE_USER_ID ?? '',
