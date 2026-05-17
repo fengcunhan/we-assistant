@@ -287,6 +287,34 @@ scp -r dashboard/out root@<YOUR_VPS_IP>:/opt/pi-assistant/public
 ssh root@<YOUR_VPS_IP> "systemctl restart pi-assistant"
 ```
 
+## train-query Skill (无头浏览器依赖)
+
+`src/skills/train-query.ts` 查途牛火车票接口。该接口有**瑞数 WAF 动态反爬**，裸 `fetch()` 只会拿到 JS 挑战页，必须用真实浏览器执行挑战。skill 内用 Playwright 无头 Chromium + 反检测绕过，进程内复用单例浏览器（首次过 WAF 慢 ~7s，之后命中 Cookie ~0.5s）。
+
+### VPS 是 RHEL 系 (OpenCloudOS 9)，部署要点
+
+`playwright install --with-deps` **只支持 Debian/Ubuntu**，OpenCloudOS 用 `dnf` 手动装运行库：
+
+```bash
+# 1. 装 playwright + 仅完整 chromium 二进制 (headless-shell 国内 CDN 拉不动，不装)
+ssh root@<YOUR_VPS_IP> "cd /opt/pi-assistant && npm i playwright@1.60.0 && npx playwright install chromium"
+
+# 2. dnf 装 Chromium 运行库 (RHEL 9 ABI)
+ssh root@<YOUR_VPS_IP> "dnf install -y nss nspr atk at-spi2-atk at-spi2-core cups-libs libdrm libxkbcommon libXcomposite libXdamage libXext libXfixes libXrandr libxcb libxshmfence mesa-libgbm pango cairo alsa-lib gtk3 libX11 expat glib2 dbus-libs"
+
+# 3. 上传 skill + 重启
+scp vps/src/skills/train-query.ts root@<YOUR_VPS_IP>:/opt/pi-assistant/src/skills/
+ssh root@<YOUR_VPS_IP> "systemctl restart pi-assistant"
+```
+
+### 关键点
+
+- **不依赖 headless-shell**：国内 VPS 到 Playwright CDN 拉 `chrome-headless-shell` 极慢/失败。skill 用 `chromium.launch({ headless: false, args: ['--headless=new', ...] })` —— `headless:false` 让 Playwright 选用完整 `chromium` 二进制，`--headless=new` 真无头运行（无显示器免 xvfb，且比旧 headless-shell 更不易被瑞数识别）
+- **systemd 以 root 运行**：launch args 必须含 `--no-sandbox`；小内存 VPS 加 `--disable-dev-shm-usage`
+- **内存**：常驻无头 Chromium 约 150-250MB，1.7G 内存的 VPS 需留意 OOM
+- **改 skill 后**：`skill-loader.ts` 有 fs.watch 热重载；但因进程内单例浏览器，稳妥起见 `systemctl restart pi-assistant`
+- **回滚**：覆盖前会留 `train-query.ts.bak.<时间戳>`，回滚即 `cp` 回来再重启
+
 ## Systemd Service
 
 File: `/etc/systemd/system/pi-assistant.service`
@@ -329,3 +357,5 @@ WantedBy=multi-user.target
 4. **CDN URL 格式**: 下载用 `/download?encrypted_query_param=<urlencoded>`，上传用 `/upload?encrypted_query_param=<urlencoded>&filekey=<hex>`
 5. **语音转写字段**: iLink 返回的是 `voice_item.text`，不是 `voice_item.voice_text`
 6. **语音消息应走 Agent**: 有转写文本的语音消息要交给 Agent 处理，不能当纯媒体只存档
+7. **途牛接口瑞数 WAF**: `train-query` skill 必须用无头浏览器过 WAF，裸 `fetch()` 拿到的是 JS 挑战页非 JSON；VPS 是 RHEL 系，Chromium 运行库需 `dnf` 手动装 (详见 train-query Skill 段)
+8. **Playwright headless-shell 国内拉不动**: 只装完整 `chromium`，靠 `--headless=new` 跑无头；缓存里被中断下载留下的 `__dirlock` 不影响运行，重装浏览器前需先删
