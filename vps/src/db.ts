@@ -149,11 +149,22 @@ export function getStats() {
 
   const vectorCount = (db.prepare('SELECT COUNT(*) as c FROM vectors').get() as any)?.c ?? 0
 
+  const recentOps = db.prepare(
+    'SELECT id, intent_type, content, category, timestamp FROM vectors ORDER BY timestamp DESC LIMIT 8'
+  ).all() as Array<{ id: string; intent_type: string; content: string; category: string; timestamp: number }>
+
   return {
     totalNotes,
     vectorCount,
     intentDistribution,
     recentActivity: activityRows.map((r) => ({ date: r.d, count: r.c })).reverse(),
+    recentOperations: recentOps.map((r) => ({
+      id: r.id,
+      type: r.intent_type,
+      content: r.content,
+      category: r.category,
+      timestamp: r.timestamp,
+    })),
   }
 }
 

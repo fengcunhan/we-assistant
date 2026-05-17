@@ -5,43 +5,59 @@ import { PieChart } from "./components/pie-chart";
 import { ActivityChart } from "./components/activity-chart";
 import { useAuth } from "./components/auth-provider";
 
+interface Operation {
+  id: string;
+  type: string;
+  content: string;
+  category: string;
+  timestamp: number;
+}
+
 interface Stats {
   totalNotes: number;
   intentDistribution: { store: number; query: number; chat: number };
   recentActivity: Array<{ date: string; count: number }>;
+  recentOperations: Operation[];
 }
 
-const DEMO_STATS: Stats = {
-  totalNotes: 156,
-  intentDistribution: { store: 89, query: 42, chat: 25 },
-  recentActivity: [
-    { date: "2026-03-24", count: 12 },
-    { date: "2026-03-25", count: 8 },
-    { date: "2026-03-26", count: 15 },
-    { date: "2026-03-27", count: 6 },
-    { date: "2026-03-28", count: 22 },
-    { date: "2026-03-29", count: 18 },
-    { date: "2026-03-30", count: 11 },
-  ],
+const EMPTY_STATS: Stats = {
+  totalNotes: 0,
+  intentDistribution: { store: 0, query: 0, chat: 0 },
+  recentActivity: [],
+  recentOperations: [],
 };
 
-const DEMO_OPERATIONS = [
-  { type: "store", content: "Q2 产品路线图会议纪要 - 三个核心优先级", category: "meeting", time: "2 分钟前" },
-  { type: "query", content: "上周的 action items 是什么?", category: "work", time: "15 分钟前" },
-  { type: "store", content: "关于边缘计算趋势的文章", category: "learning", time: "1 小时前" },
-  { type: "chat", content: "你能帮我做什么?", category: "general", time: "2 小时前" },
-  { type: "store", content: "生日聚会策划 - 场地和嘉宾名单", category: "life", time: "3 小时前" },
-  { type: "query", content: "找一下关于 SiliconFlow API 的笔记", category: "work", time: "5 小时前" },
-];
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  if (diff < 0) return "刚刚";
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return "刚刚";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} 个月前`;
+  return `${Math.floor(months / 12)} 年前`;
+}
 
 export default function DashboardPage() {
   const { authFetch } = useAuth();
-  const [stats, setStats] = useState<Stats>(DEMO_STATS);
+  const [stats, setStats] = useState<Stats>(EMPTY_STATS);
 
   useEffect(() => {
     authFetch("/api/stats")
       .then((res) => res.json())
-      .then((data: Stats) => setStats(data))
+      .then((data: Stats) =>
+        setStats({
+          ...EMPTY_STATS,
+          ...data,
+          recentOperations: data.recentOperations ?? [],
+          recentActivity: data.recentActivity ?? [],
+        }),
+      )
       .catch(() => {});
   }, [authFetch]);
 
@@ -102,31 +118,37 @@ export default function DashboardPage() {
           Recent Operations
         </h2>
         <div className="space-y-3">
-          {DEMO_OPERATIONS.map((op, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 py-2 border-b border-pi-border/50 last:border-0"
-            >
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  op.type === "store"
-                    ? "bg-pi-gold"
-                    : op.type === "query"
-                    ? "bg-pi-blue"
-                    : "bg-pi-green"
-                }`}
-              />
-              <span className="text-sm text-pi-ink-soft flex-1 truncate">
-                {op.content}
-              </span>
-              <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 tag-${op.category}`}>
-                {op.category}
-              </span>
-              <span className="text-xs text-pi-ink-muted tabular-nums whitespace-nowrap">
-                {op.time}
-              </span>
-            </div>
-          ))}
+          {stats.recentOperations.length === 0 ? (
+            <p className="text-sm text-pi-ink-muted py-2">暂无操作记录</p>
+          ) : (
+            stats.recentOperations.map((op) => (
+              <div
+                key={op.id}
+                className="flex items-center gap-3 py-2 border-b border-pi-border/50 last:border-0"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    op.type === "store"
+                      ? "bg-pi-gold"
+                      : op.type === "query"
+                      ? "bg-pi-blue"
+                      : "bg-pi-green"
+                  }`}
+                />
+                <span className="text-sm text-pi-ink-soft flex-1 truncate">
+                  {op.content}
+                </span>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full shrink-0 tag-${op.category}`}
+                >
+                  {op.category}
+                </span>
+                <span className="text-xs text-pi-ink-muted tabular-nums whitespace-nowrap">
+                  {formatRelativeTime(op.timestamp)}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
