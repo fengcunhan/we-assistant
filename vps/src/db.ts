@@ -277,6 +277,32 @@ export function getRecentLogs(botId: string, limit = 50): unknown[] {
   ).all(botId, limit)
 }
 
+export interface ContactRow {
+  contactId: string
+  lastSeen: number
+  messageCount: number
+  lastContent: string
+}
+
+// Distinct wxids this bot has exchanged messages with — used to populate the
+// proactive-chat target picker so users don't have to guess a raw wxid.
+export function getContacts(botId: string): ContactRow[] {
+  return db
+    .prepare(
+      `SELECT contact_id AS contactId,
+              MAX(timestamp) AS lastSeen,
+              COUNT(*) AS messageCount,
+              (SELECT content FROM message_log m2
+                 WHERE m2.bot_id = ml.bot_id AND m2.contact_id = ml.contact_id
+                 ORDER BY timestamp DESC LIMIT 1) AS lastContent
+         FROM message_log ml
+        WHERE bot_id = ?
+        GROUP BY contact_id
+        ORDER BY lastSeen DESC`,
+    )
+    .all(botId) as ContactRow[]
+}
+
 // --- Vectors ---
 
 function float32ToBuffer(arr: number[]): Buffer {

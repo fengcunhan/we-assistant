@@ -499,6 +499,14 @@ const server = createServer(async (req, res) => {
       return json(res, { bindings: botStatusList() })
     }
 
+    // Known wxids this bot has talked to — powers the proactive-chat picker
+    if (url.pathname === '/api/wechat/contacts' && method === 'GET') {
+      const botId = resolveBotId(url)
+      if (!botId) return json(res, { contacts: [] })
+      const { getContacts } = await import('./db.js')
+      return json(res, { contacts: getContacts(botId) })
+    }
+
     // Toggle / configure proactive per bot
     const proactiveMatch = url.pathname.match(/^\/api\/wechat\/bindings\/([^/]+)\/proactive$/)
     if (proactiveMatch && method === 'PATCH') {

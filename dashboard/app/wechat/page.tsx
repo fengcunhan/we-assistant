@@ -7,6 +7,13 @@ import { useBots, type BotInfo } from "../components/bot-provider";
 
 type BindStep = "idle" | "loading" | "scanning" | "scanned" | "confirmed" | "error";
 
+interface Contact {
+  contactId: string;
+  lastSeen: number;
+  messageCount: number;
+  lastContent: string;
+}
+
 export default function WeChatPage() {
   const { authFetch } = useAuth();
   const { bots, refresh } = useBots();
@@ -264,6 +271,24 @@ function BotCard({
   const [pEnabled, setPEnabled] = useState(bot.proactiveEnabled);
   const [pUserId, setPUserId] = useState(bot.proactiveUserId);
   const [saving, setSaving] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    authFetch(
+      `/api/wechat/contacts?botId=${encodeURIComponent(bot.botId)}`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setContacts(d.contacts ?? []);
+      })
+      .catch(() => {
+        // ignore — picker just falls back to free text
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, bot.botId]);
 
   const dirty =
     pEnabled !== bot.proactiveEnabled || pUserId !== bot.proactiveUserId;
@@ -338,11 +363,17 @@ function BotCard({
           </label>
           <input
             type="text"
+            list={`contacts-${bot.botId}`}
             placeholder="主动聊天目标 wxid"
             value={pUserId}
             onChange={(e) => setPUserId(e.target.value)}
             className="flex-1 max-w-xs px-3 py-1.5 bg-white/70 border border-pi-border rounded-lg text-xs text-pi-ink placeholder:text-pi-ink-muted/60 focus:outline-none focus:ring-2 focus:ring-pi-gold/30"
           />
+          <datalist id={`contacts-${bot.botId}`}>
+            {contacts.map((c) => (
+              <option key={c.contactId} value={c.contactId} />
+            ))}
+          </datalist>
           <button
             onClick={saveProactive}
             disabled={!dirty || saving}
@@ -351,6 +382,43 @@ function BotCard({
             {saving ? "..." : "Save"}
           </button>
         </div>
+
+        {contacts.length > 0 ? (
+          <div className="mt-3">
+            <p className="text-[11px] text-pi-ink-muted mb-1.5">
+              聊过的微信号（点击填入）
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {contacts.map((c) => (
+                <button
+                  key={c.contactId}
+                  type="button"
+                  onClick={() => setPUserId(c.contactId)}
+                  title={`${c.messageCount} 条消息 · 最近 ${new Date(
+                    c.lastSeen,
+                  ).toLocaleString("zh-CN")}${
+                    c.lastContent ? ` · ${c.lastContent.slice(0, 40)}` : ""
+                  }`}
+                  className={`px-2 py-1 rounded-md text-[11px] font-mono border transition-colors ${
+                    pUserId === c.contactId
+                      ? "bg-pi-gold/15 border-pi-gold/40 text-pi-ink"
+                      : "bg-white/60 border-pi-border text-pi-ink-soft hover:border-pi-gold/40"
+                  }`}
+                >
+                  {c.contactId}
+                  <span className="ml-1.5 text-pi-ink-muted">
+                    {c.messageCount}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-[11px] text-pi-ink-muted">
+            还没有人和这个 bot 聊过天。让目标用户先给 bot 发一条消息，wxid
+            就会出现在这里。
+          </p>
+        )}
       </div>
     </div>
   );
